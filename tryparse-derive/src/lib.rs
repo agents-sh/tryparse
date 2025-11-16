@@ -537,7 +537,7 @@ fn extract_tag_info(attrs: &[syn::Attribute]) -> Result<Option<TaggedEnumInfo>, 
         }
 
         // Use parse_nested_meta for syn 2.0
-        let _ = attr.parse_nested_meta(|meta| {
+        if let Err(e) = attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("tag") {
                 // Parse tag = "value"
                 let value = meta.value()?;
@@ -551,7 +551,9 @@ fn extract_tag_info(attrs: &[syn::Attribute]) -> Result<Option<TaggedEnumInfo>, 
                 rename_all_lit = Some(lit);
             }
             Ok(())
-        });
+        }) {
+            eprintln!("Warning: Failed to parse serde attribute: {}", e);
+        }
     }
 
     // Validate rename_all value if present
