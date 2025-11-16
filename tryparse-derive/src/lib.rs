@@ -331,7 +331,7 @@ fn generate_enum_deserialize(
     // Check if this is an internally-tagged enum
     match extract_tag_info(attrs) {
         Ok(Some(tag_info)) => return generate_tagged_enum_deserialize(name, data, tag_info),
-        Ok(None) => {} // Continue with regular enum deserialization
+        Ok(None) => {}          // Continue with regular enum deserialization
         Err(err) => return err, // Return compile error
     }
 
@@ -545,7 +545,9 @@ struct TaggedEnumInfo {
 ///
 /// Looks for #[serde(tag = "type")] and #[serde(rename_all = "snake_case")].
 /// Returns Err with compile error if rename_all has an invalid value.
-fn extract_tag_info(attrs: &[syn::Attribute]) -> Result<Option<TaggedEnumInfo>, proc_macro2::TokenStream> {
+fn extract_tag_info(
+    attrs: &[syn::Attribute],
+) -> Result<Option<TaggedEnumInfo>, proc_macro2::TokenStream> {
     let mut tag_field: Option<String> = None;
     let mut rename_all: Option<String> = None;
     let mut rename_all_lit: Option<syn::LitStr> = None;
@@ -577,13 +579,23 @@ fn extract_tag_info(attrs: &[syn::Attribute]) -> Result<Option<TaggedEnumInfo>, 
 
     // Validate rename_all value if present
     if let Some(rule) = &rename_all {
-        let valid = ["snake_case", "camelCase", "PascalCase", "kebab-case", "SCREAMING_SNAKE_CASE"];
+        let valid = [
+            "snake_case",
+            "camelCase",
+            "PascalCase",
+            "kebab-case",
+            "SCREAMING_SNAKE_CASE",
+        ];
         if !valid.contains(&rule.as_str()) {
             // Use the stored LitStr for proper error span
             if let Some(lit) = rename_all_lit {
                 let error = syn::Error::new_spanned(
                     lit,
-                    format!("Invalid rename_all value: '{}'. Valid values: {}", rule, valid.join(", "))
+                    format!(
+                        "Invalid rename_all value: '{}'. Valid values: {}",
+                        rule,
+                        valid.join(", ")
+                    ),
                 );
                 return Err(error.to_compile_error());
             }
