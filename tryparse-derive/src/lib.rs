@@ -871,7 +871,7 @@ fn generate_untagged_enum_deserialize(
         .enumerate()
         .map(|(idx, variant)| {
             let variant_ident = &variant.ident;
-            let variant_idx = idx as u8;
+            let variant_idx = idx;
 
             match &variant.fields {
                 Fields::Unit => {
@@ -938,7 +938,7 @@ fn generate_untagged_enum_deserialize(
         .enumerate()
         .map(|(idx, variant)| {
             let variant_ident = &variant.ident;
-            let variant_idx = idx as u8;
+            let variant_idx = idx;
 
             match &variant.fields {
                 Fields::Unit => {
@@ -986,7 +986,7 @@ fn generate_untagged_enum_deserialize(
         .iter()
         .enumerate()
         .map(|(idx, variant)| {
-            let variant_idx = idx as u8;
+            let variant_idx = idx;
 
             match &variant.fields {
                 Fields::Unit => {
@@ -1018,7 +1018,7 @@ fn generate_untagged_enum_deserialize(
             use serde::Deserialize;
 
             // PHASE 1: Try strict matching first (try_deserialize - no coercion)
-            let mut strict_matches: Vec<u8> = Vec::new();
+            let mut strict_matches: Vec<usize> = Vec::new();
 
             #(#strict_attempts)*
 
@@ -1032,7 +1032,7 @@ fn generate_untagged_enum_deserialize(
             }
 
             // PHASE 2: If no strict matches or multiple matches, try lenient with scoring
-            let mut variant_matches: Vec<(u8, u32)> = Vec::new();
+            let mut variant_matches: Vec<(usize, u32)> = Vec::new();
 
             #(#variant_attempts)*
 
