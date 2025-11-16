@@ -462,13 +462,15 @@ fn apply_rename_all_at_compile_time(s: &str, rule: &str) -> String {
 
 /// Generate deserialization code for internally-tagged enums.
 ///
-/// Handles #[serde(tag = "type", rename_all = "snake_case")] enums with fuzzy tag matching.
+/// Handles both internally-tagged: #[serde(tag = "type")]
+/// and adjacently-tagged: #[serde(tag = "type", content = "data")] enums.
 fn generate_tagged_enum_deserialize(
     _name: &syn::Ident,
     data: &syn::DataEnum,
     tag_info: TaggedEnumInfo,
 ) -> proc_macro2::TokenStream {
     let tag_field = &tag_info.tag_field;
+    let content_field = &tag_info.content_field;
     let rename_all = tag_info.rename_all.as_deref().unwrap_or("none");
 
     // Build a map of variant names after applying rename_all transformation
@@ -500,6 +502,34 @@ fn generate_tagged_enum_deserialize(
             .variant(::tryparse::deserializer::enum_coercer::EnumVariant::new(#variant_name))
         }
     });
+
+    // Generate deserialization code based on whether this is internally or adjacently tagged
+    let deserialization_code = if let Some(content_field_name) = content_field {
+        // Adjacently-tagged enum
+        quote! {
+            {
+                // Construct object with tag and content fields only
+                let mut adjacently_tagged_obj = serde_json::Map::new();
+                adjacently_tagged_obj.insert(#tag_field.to_string(), Value::String(normalized_variant.clone()));
+
+                // Extract content from original object
+                if let Some(content_value) = obj.get(#content_field_name) {
+                    adjacently_tagged_obj.insert(#content_field_name.to_string(), content_value.clone());
+                }
+
+                let normalized_value = Value::Object(adjacently_tagged_obj);
+                <Self as ::serde::Deserialize>::deserialize(normalized_value)
+            }
+        }
+    } else {
+        // Internally-tagged enum
+        quote! {
+            {
+                let normalized_value = Value::Object(normalized_obj);
+                <Self as ::serde::Deserialize>::deserialize(normalized_value)
+            }
+        }
+    };
 
     quote! {
         fn deserialize(
@@ -580,15 +610,16 @@ fn generate_tagged_enum_deserialize(
             let mut normalized_obj = obj.clone();
 
             // Track if tag was normalized
-            if tag_value != normalized_variant {
+            if tag_value != &normalized_variant {
                 ctx.add_transformation(::tryparse::value::Transformation::FieldNameCaseChanged {
                     from: tag_value.to_string(),
                     to: normalized_variant.clone(),
                 });
-                normalized_obj.insert(#tag_field.to_string(), Value::String(normalized_variant));
+                normalized_obj.insert(#tag_field.to_string(), Value::String(normalized_variant.clone()));
             }
 
-            // Fuzzy match and normalize field names
+            // Fuzzy match and normalize field names for internally-tagged enums
+            // (adjacently-tagged enums don't need this as fields are in content)
             for expected_field in expected_fields {
                 let matcher = ::tryparse::deserializer::struct_coercer::FieldMatcher::new(expected_field);
                 if let Some((json_key, _)) = matcher.find_in_object(&obj) {
@@ -605,13 +636,12 @@ fn generate_tagged_enum_deserialize(
                 }
             }
 
-            // Deserialize using serde's standard Deserialize trait
-            let normalized_value = Value::Object(normalized_obj);
-            <Self as ::serde::Deserialize>::deserialize(normalized_value)
+            // Prepare value for deserialization
+            #deserialization_code
                 .map_err(|e| {
                     ::tryparse::error::ParseError::DeserializeFailed(
                         ::tryparse::error::DeserializeError::Custom(
-                            format!("Failed to deserialize internally-tagged enum: {}", e)
+                            format!("Failed to deserialize tagged enum: {}", e)
                         )
                     )
                 })
@@ -638,6 +668,8 @@ fn has_union_attribute(attrs: &[syn::Attribute]) -> bool {
 struct TaggedEnumInfo {
     /// The tag field name (e.g., "type")
     tag_field: String,
+    /// The content field name for adjacently-tagged enums (e.g., "data")
+    content_field: Option<String>,
     /// The rename_all rule (e.g., "snake_case")
     rename_all: Option<String>,
 }
@@ -650,6 +682,7 @@ fn extract_tag_info(
     attrs: &[syn::Attribute],
 ) -> Result<Option<TaggedEnumInfo>, proc_macro2::TokenStream> {
     let mut tag_field: Option<String> = None;
+    let mut content_field: Option<String> = None;
     let mut rename_all: Option<String> = None;
     let mut rename_all_lit: Option<syn::LitStr> = None;
 
@@ -665,6 +698,11 @@ fn extract_tag_info(
                 let value = meta.value()?;
                 let lit: syn::LitStr = value.parse()?;
                 tag_field = Some(lit.value());
+            } else if meta.path.is_ident("content") {
+                // Parse content = "value" for adjacently-tagged enums
+                let value = meta.value()?;
+                let lit: syn::LitStr = value.parse()?;
+                content_field = Some(lit.value());
             } else if meta.path.is_ident("rename_all") {
                 // Parse rename_all = "value"
                 let value = meta.value()?;
@@ -705,6 +743,7 @@ fn extract_tag_info(
 
     Ok(tag_field.map(|tag| TaggedEnumInfo {
         tag_field: tag,
+        content_field,
         rename_all,
     }))
 }

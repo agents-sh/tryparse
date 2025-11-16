@@ -553,13 +553,8 @@ fn test_struct_with_hashmap_and_other_fields() {
 #[derive(Debug, PartialEq, LlmDeserialize, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Decision {
-    StartTask {
-        skill_id: String,
-        reasoning: String,
-    },
-    AskClarification {
-        message: String,
-    },
+    StartTask { skill_id: String, reasoning: String },
+    AskClarification { message: String },
 }
 
 #[cfg(feature = "derive")]
@@ -577,7 +572,11 @@ fn test_tagged_enum_exact_match() {
     let result = Decision::deserialize(&value, &mut ctx).unwrap();
     assert!(matches!(result, Decision::StartTask { .. }));
 
-    if let Decision::StartTask { skill_id, reasoning } = result {
+    if let Decision::StartTask {
+        skill_id,
+        reasoning,
+    } = result
+    {
         assert_eq!(skill_id, "test");
         assert_eq!(reasoning, "clear");
     }
@@ -783,18 +782,11 @@ fn test_tagged_enum_without_rename_all_fuzzy() {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum NegotiationDecision {
     /// The user's intent is clear and matches an available skill.
-    StartTask {
-        skill_id: String,
-        reasoning: String,
-    },
+    StartTask { skill_id: String, reasoning: String },
     /// The user's intent is unclear or missing critical information.
-    AskClarification {
-        message: String,
-    },
+    AskClarification { message: String },
     /// The user's request is outside the scope of available skills.
-    Reject {
-        reason: String,
-    },
+    Reject { reason: String },
 }
 
 // --- StartTask Variant Tests ---
@@ -814,7 +806,10 @@ fn test_negotiation_start_task_exact() {
     let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
 
     match result {
-        NegotiationDecision::StartTask { skill_id, reasoning } => {
+        NegotiationDecision::StartTask {
+            skill_id,
+            reasoning,
+        } => {
             assert_eq!(skill_id, "web_search");
             assert_eq!(reasoning, "User wants to search the web");
         }
@@ -955,7 +950,10 @@ fn test_negotiation_ask_clarification_pascal_case() {
     let mut ctx = CoercionContext::new();
 
     let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
-    assert!(matches!(result, NegotiationDecision::AskClarification { .. }));
+    assert!(matches!(
+        result,
+        NegotiationDecision::AskClarification { .. }
+    ));
 }
 
 #[cfg(feature = "derive")]
@@ -970,7 +968,10 @@ fn test_negotiation_ask_clarification_camel_case() {
     let mut ctx = CoercionContext::new();
 
     let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
-    assert!(matches!(result, NegotiationDecision::AskClarification { .. }));
+    assert!(matches!(
+        result,
+        NegotiationDecision::AskClarification { .. }
+    ));
 }
 
 #[cfg(feature = "derive")]
@@ -985,7 +986,10 @@ fn test_negotiation_ask_clarification_kebab_case() {
     let mut ctx = CoercionContext::new();
 
     let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
-    assert!(matches!(result, NegotiationDecision::AskClarification { .. }));
+    assert!(matches!(
+        result,
+        NegotiationDecision::AskClarification { .. }
+    ));
 }
 
 #[cfg(feature = "derive")]
@@ -1000,7 +1004,10 @@ fn test_negotiation_ask_clarification_screaming_snake() {
     let mut ctx = CoercionContext::new();
 
     let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
-    assert!(matches!(result, NegotiationDecision::AskClarification { .. }));
+    assert!(matches!(
+        result,
+        NegotiationDecision::AskClarification { .. }
+    ));
 }
 
 #[cfg(feature = "derive")]
@@ -1016,7 +1023,10 @@ fn test_negotiation_ask_clarification_abbreviated() {
     let mut ctx = CoercionContext::new();
 
     let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
-    assert!(matches!(result, NegotiationDecision::AskClarification { .. }));
+    assert!(matches!(
+        result,
+        NegotiationDecision::AskClarification { .. }
+    ));
 }
 
 // --- Reject Variant Tests ---
@@ -1138,7 +1148,7 @@ fn test_negotiation_wrong_type_value() {
 #[cfg(feature = "derive")]
 #[test]
 fn test_negotiation_not_an_object() {
-    let json = json!("start_task");  // String instead of object
+    let json = json!("start_task"); // String instead of object
 
     let value = FlexValue::new(json, Source::Direct);
     let mut ctx = CoercionContext::new();
@@ -1178,7 +1188,10 @@ fn test_negotiation_llm_response_messy_json() {
     }"#;
 
     let result: NegotiationDecision = tryparse::parse_llm(json).unwrap();
-    assert!(matches!(result, NegotiationDecision::AskClarification { .. }));
+    assert!(matches!(
+        result,
+        NegotiationDecision::AskClarification { .. }
+    ));
 }
 
 #[cfg(feature = "derive")]
@@ -1203,8 +1216,14 @@ fn test_negotiation_llm_varied_casing() {
 fn test_negotiation_all_three_variants() {
     // Test that all three variants can coexist and be parsed correctly
     let test_cases = vec![
-        (json!({"type": "start_task", "skill_id": "s1", "reasoning": "r1"}), "StartTask"),
-        (json!({"type": "ask_clarification", "message": "m1"}), "AskClarification"),
+        (
+            json!({"type": "start_task", "skill_id": "s1", "reasoning": "r1"}),
+            "StartTask",
+        ),
+        (
+            json!({"type": "ask_clarification", "message": "m1"}),
+            "AskClarification",
+        ),
         (json!({"type": "reject", "reason": "r1"}), "Reject"),
     ];
 
@@ -1215,9 +1234,9 @@ fn test_negotiation_all_three_variants() {
         let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
 
         match (result, expected_variant) {
-            (NegotiationDecision::StartTask { .. }, "StartTask") => {},
-            (NegotiationDecision::AskClarification { .. }, "AskClarification") => {},
-            (NegotiationDecision::Reject { .. }, "Reject") => {},
+            (NegotiationDecision::StartTask { .. }, "StartTask") => {}
+            (NegotiationDecision::AskClarification { .. }, "AskClarification") => {}
+            (NegotiationDecision::Reject { .. }, "Reject") => {}
             _ => panic!("Variant mismatch"),
         }
     }
@@ -1280,7 +1299,11 @@ fn test_negotiation_unicode_content() {
 
     let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
 
-    if let NegotiationDecision::StartTask { skill_id, reasoning } = result {
+    if let NegotiationDecision::StartTask {
+        skill_id,
+        reasoning,
+    } = result
+    {
         assert_eq!(skill_id, "translator_🌍");
         assert_eq!(reasoning, "用户想要翻译文本");
     } else {
@@ -1309,10 +1332,16 @@ fn test_negotiation_field_fuzzy_match_works() {
     let result = NegotiationDecision::deserialize(&value, &mut ctx);
 
     // Field fuzzy matching now works!
-    assert!(result.is_ok(), "Field fuzzy matching should work for internally-tagged enums");
+    assert!(
+        result.is_ok(),
+        "Field fuzzy matching should work for internally-tagged enums"
+    );
 
     match result.unwrap() {
-        NegotiationDecision::StartTask { skill_id, reasoning } => {
+        NegotiationDecision::StartTask {
+            skill_id,
+            reasoning,
+        } => {
             assert_eq!(skill_id, "test");
             assert_eq!(reasoning, "clear");
         }
@@ -1340,5 +1369,84 @@ fn test_negotiation_compare_with_regular_struct() {
 
     // Regular struct DOES fuzzy match fields ✅
     let result = RegularStruct::deserialize(&value, &mut ctx);
-    assert!(result.is_ok(), "Regular structs DO support fuzzy field matching");
+    assert!(
+        result.is_ok(),
+        "Regular structs DO support fuzzy field matching"
+    );
+}
+
+// ===== Adjacently-Tagged Enums =====
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_adjacently_tagged_enum_basic() {
+    use serde::{Deserialize, Serialize};
+    use tryparse::deserializer::{CoercionContext, LlmDeserialize};
+    use tryparse::value::{FlexValue, Source};
+
+    #[derive(Debug, PartialEq, LlmDeserialize, Serialize, Deserialize)]
+    #[serde(tag = "type", content = "data", rename_all = "snake_case")]
+    enum Message {
+        Text(String),
+        Number(i64),
+        Flag(bool),
+    }
+
+    // Test Text variant
+    let json = json!({
+        "type": "text",
+        "data": "hello world"
+    });
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+    let result = <Message as LlmDeserialize>::deserialize(&value, &mut ctx);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Message::Text("hello world".to_string()));
+
+    // Test Number variant
+    let json = json!({
+        "type": "number",
+        "data": 42
+    });
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+    let result = <Message as LlmDeserialize>::deserialize(&value, &mut ctx);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Message::Number(42));
+
+    // Test Flag variant
+    let json = json!({
+        "type": "flag",
+        "data": true
+    });
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+    let result = <Message as LlmDeserialize>::deserialize(&value, &mut ctx);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Message::Flag(true));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_adjacently_tagged_fuzzy_tag() {
+    use serde::{Deserialize, Serialize};
+    use tryparse::deserializer::{CoercionContext, LlmDeserialize};
+    use tryparse::value::{FlexValue, Source};
+
+    #[derive(Debug, PartialEq, LlmDeserialize, Serialize, Deserialize)]
+    #[serde(tag = "type", content = "data", rename_all = "snake_case")]
+    enum Message {
+        Text(String),
+    }
+
+    // Test fuzzy tag matching - "Text" should match "text"
+    let json = json!({
+        "type": "Text",  // PascalCase should fuzzy match to snake_case
+        "data": "hello"
+    });
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+    let result = <Message as LlmDeserialize>::deserialize(&value, &mut ctx);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Message::Text("hello".to_string()));
 }
