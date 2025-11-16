@@ -11,6 +11,34 @@ use crate::{
     value::FlexValue,
 };
 
+/// Strategy used for fuzzy matching.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MatchStrategy {
+    /// Exact case-sensitive match
+    Exact,
+    /// Unaccented match (café → cafe)
+    Unaccented,
+    /// Punctuation-stripped match
+    PunctuationStripped,
+    /// Case-insensitive match
+    CaseInsensitive,
+    /// Substring match
+    Substring,
+    /// Levenshtein distance (edit distance)
+    Levenshtein,
+}
+
+/// Result of fuzzy matching with metadata.
+#[derive(Debug, Clone)]
+pub struct MatchResult {
+    /// The matched variant name
+    pub variant: String,
+    /// The strategy that was used to match
+    pub strategy: MatchStrategy,
+    /// Edit distance (for Levenshtein matches, 0 for others)
+    pub distance: usize,
+}
+
 /// Metadata about an enum variant for fuzzy matching.
 #[derive(Debug, Clone)]
 pub struct EnumVariant {
@@ -91,6 +119,18 @@ impl EnumMatcher {
     /// - `Ok(variant_name)` if a match is found
     /// - `Err(...)` if no match found or ambiguous
     pub fn match_string(&self, input: &str) -> Result<String> {
+        self.match_string_detailed(input)
+            .map(|result| result.variant)
+    }
+
+    /// Match a string to an enum variant using BAML's algorithm, with detailed metadata.
+    ///
+    /// Returns match result including which strategy was used and distance metrics.
+    ///
+    /// # Returns
+    /// - `Ok(MatchResult)` if a match is found, with strategy and distance information
+    /// - `Err(...)` if no match found or ambiguous
+    pub fn match_string_detailed(&self, input: &str) -> Result<MatchResult> {
         let input = input.trim();
 
         // Build candidates list: (variant_name, [match_strings])
@@ -102,12 +142,20 @@ impl EnumMatcher {
 
         // Strategy 1: Exact case-sensitive match
         if let Some(matched) = self.try_exact_match(input, &candidates) {
-            return Ok(matched.to_string());
+            return Ok(MatchResult {
+                variant: matched.to_string(),
+                strategy: MatchStrategy::Exact,
+                distance: 0,
+            });
         }
 
         // Strategy 2: Unaccented case-sensitive match
         if let Some(matched) = self.try_unaccented_match(input, &candidates) {
-            return Ok(matched.to_string());
+            return Ok(MatchResult {
+                variant: matched.to_string(),
+                strategy: MatchStrategy::Unaccented,
+                distance: 0,
+            });
         }
 
         // Strip punctuation and try again
@@ -122,7 +170,11 @@ impl EnumMatcher {
 
         // Strategy 3: Punctuation-stripped match (case-sensitive)
         if let Some(matched) = self.try_exact_match(&stripped_input, &stripped_candidates) {
-            return Ok(matched.to_string());
+            return Ok(MatchResult {
+                variant: matched.to_string(),
+                strategy: MatchStrategy::PunctuationStripped,
+                distance: 0,
+            });
         }
 
         // Strategy 4: Case-insensitive match (after stripping punctuation)
@@ -136,18 +188,31 @@ impl EnumMatcher {
             .collect();
 
         if let Some(matched) = self.try_exact_match(&lowercase_input, &lowercase_candidates) {
-            return Ok(matched.to_string());
+            return Ok(MatchResult {
+                variant: matched.to_string(),
+                strategy: MatchStrategy::CaseInsensitive,
+                distance: 0,
+            });
         }
 
         // Strategy 5: Substring match
         if let Some(matched) = self.try_substring_match(&lowercase_input, &lowercase_candidates) {
-            return Ok(matched.to_string());
+            return Ok(MatchResult {
+                variant: matched.to_string(),
+                strategy: MatchStrategy::Substring,
+                distance: 0,
+            });
         }
 
         // Strategy 6: Levenshtein distance (edit distance)
-        if let Some(matched) = self.try_edit_distance_match(&lowercase_input, &lowercase_candidates)
+        if let Some((matched, distance)) =
+            self.try_edit_distance_match(&lowercase_input, &lowercase_candidates)
         {
-            return Ok(matched.to_string());
+            return Ok(MatchResult {
+                variant: matched.to_string(),
+                strategy: MatchStrategy::Levenshtein,
+                distance,
+            });
         }
 
         // No match found
@@ -256,7 +321,7 @@ impl EnumMatcher {
         &self,
         input: &str,
         candidates: &'a [(&'a str, Vec<String>)],
-    ) -> Option<&'a str> {
+    ) -> Option<(&'a str, usize)> {
         let mut best_match: Option<&'a str> = None;
         let mut best_distance = usize::MAX;
 
@@ -274,7 +339,7 @@ impl EnumMatcher {
         let threshold = if input.is_empty() { 0 } else { input.len() / 3 };
 
         if best_distance <= threshold {
-            best_match
+            best_match.map(|m| (m, best_distance))
         } else {
             None
         }
@@ -488,5 +553,49 @@ mod tests {
         // Case-insensitive
         let value = FlexValue::new(json!("success"), Source::Direct);
         assert_eq!(match_enum_variant(&value, &matcher).unwrap(), "Success");
+    }
+
+    #[test]
+    fn test_match_string_detailed_strategies() {
+        let matcher = EnumMatcher::new()
+            .variant(EnumVariant::new("Success"))
+            .variant(EnumVariant::new("Error"))
+            .variant(EnumVariant::new("Naïve"));
+
+        // Exact match
+        let result = matcher.match_string_detailed("Success").unwrap();
+        assert_eq!(result.variant, "Success");
+        assert_eq!(result.strategy, MatchStrategy::Exact);
+        assert_eq!(result.distance, 0);
+
+        // Case-insensitive match
+        let result = matcher.match_string_detailed("success").unwrap();
+        assert_eq!(result.variant, "Success");
+        assert_eq!(result.strategy, MatchStrategy::CaseInsensitive);
+        assert_eq!(result.distance, 0);
+
+        // Unaccented match
+        let result = matcher.match_string_detailed("Naive").unwrap();
+        assert_eq!(result.variant, "Naïve");
+        assert_eq!(result.strategy, MatchStrategy::Unaccented);
+        assert_eq!(result.distance, 0);
+
+        // Punctuation-stripped match
+        let result = matcher.match_string_detailed("Suc.cess").unwrap();
+        assert_eq!(result.variant, "Success");
+        assert_eq!(result.strategy, MatchStrategy::PunctuationStripped);
+        assert_eq!(result.distance, 0);
+
+        // Substring match
+        let result = matcher.match_string_detailed("Succ").unwrap();
+        assert_eq!(result.variant, "Success");
+        assert_eq!(result.strategy, MatchStrategy::Substring);
+        assert_eq!(result.distance, 0);
+
+        // Levenshtein match (small edit distance)
+        let result = matcher.match_string_detailed("Succss").unwrap();
+        assert_eq!(result.variant, "Success");
+        assert_eq!(result.strategy, MatchStrategy::Levenshtein);
+        assert!(result.distance > 0);
     }
 }
