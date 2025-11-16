@@ -1478,3 +1478,82 @@ fn test_variant_rename_all_validation() {
     // #[serde(rename_all = "invalid_case")]  // Invalid
     // The derive macro would print a compile-time warning
 }
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_untagged_enum_basic() {
+    use serde::{Deserialize, Serialize};
+
+    // Note: Variant order matters in untagged enums
+    // More specific types should come before more general ones
+    #[derive(Debug, PartialEq, LlmDeserialize, Serialize, Deserialize)]
+    #[serde(untagged)]
+    enum Value {
+        Bool(bool),   // Most specific
+        Number(i64),  // Middle
+        Text(String), // Most general (catches everything)
+    }
+
+    // Number variant
+    let json = json!(42);
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+    let result = <Value as LlmDeserialize>::deserialize(&value, &mut ctx);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Value::Number(42));
+
+    // Text variant
+    let json = json!("hello");
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+    let result = <Value as LlmDeserialize>::deserialize(&value, &mut ctx);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Value::Text("hello".to_string()));
+
+    // Bool variant
+    let json = json!(true);
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+    let result = <Value as LlmDeserialize>::deserialize(&value, &mut ctx);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Value::Bool(true));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_untagged_enum_with_struct_variant() {
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Debug, PartialEq, LlmDeserialize, Serialize, Deserialize)]
+    #[serde(untagged)]
+    enum Response {
+        Error { message: String },
+        Success { value: i64 },
+    }
+
+    // Error variant
+    let json = json!({"message": "Something went wrong"});
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+    let result = <Response as LlmDeserialize>::deserialize(&value, &mut ctx);
+    assert!(result.is_ok());
+    match result.unwrap() {
+        Response::Error { message } => {
+            assert_eq!(message, "Something went wrong");
+        }
+        _ => panic!("Expected Error variant"),
+    }
+
+    // Success variant
+    let json = json!({"value": 42});
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+    let result = <Response as LlmDeserialize>::deserialize(&value, &mut ctx);
+    assert!(result.is_ok());
+    match result.unwrap() {
+        Response::Success { value: val } => {
+            assert_eq!(val, 42);
+        }
+        _ => panic!("Expected Success variant"),
+    }
+}

@@ -328,6 +328,11 @@ fn generate_enum_deserialize(
     data: &syn::DataEnum,
     attrs: &[syn::Attribute],
 ) -> proc_macro2::TokenStream {
+    // Check if this is an untagged enum
+    if has_untagged_attribute(attrs) {
+        return generate_untagged_enum_deserialize(name, data);
+    }
+
     // Check if this is an internally-tagged enum
     match extract_tag_info(attrs) {
         Ok(Some(tag_info)) => return generate_tagged_enum_deserialize(name, data, tag_info),
@@ -697,6 +702,24 @@ fn has_union_attribute(attrs: &[syn::Attribute]) -> bool {
     })
 }
 
+/// Check if enum has #[serde(untagged)] attribute
+fn has_untagged_attribute(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        if attr.path().is_ident("serde") {
+            // Parse as #[serde(untagged)]
+            let mut found = false;
+            let _ = attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("untagged") {
+                    found = true;
+                }
+                Ok(())
+            });
+            return found;
+        }
+        false
+    })
+}
+
 /// Metadata about an internally-tagged enum.
 #[derive(Debug, Clone)]
 struct TaggedEnumInfo {
@@ -830,6 +853,209 @@ fn extract_tag_info(
         content_field,
         rename_all,
     }))
+}
+
+/// Generate untagged enum deserialization code for enums with #[serde(untagged)].
+///
+/// Tries each variant in order and picks the best match based on transformation penalties.
+fn generate_untagged_enum_deserialize(
+    name: &syn::Ident,
+    data: &syn::DataEnum,
+) -> proc_macro2::TokenStream {
+    let name_str = name.to_string();
+
+    // Process all variants
+    let variant_attempts: Vec<_> = data
+        .variants
+        .iter()
+        .enumerate()
+        .map(|(idx, variant)| {
+            let variant_ident = &variant.ident;
+            let variant_idx = idx as u8;
+
+            match &variant.fields {
+                Fields::Unit => {
+                    // Unit variant - can only match null or string matching variant name
+                    quote! {
+                        {
+                            // Try to match unit variant
+                            if let Ok(()) = value.value.as_null().ok_or_else(|| ::tryparse::error::ParseError::DeserializeFailed(
+                                ::tryparse::error::DeserializeError::Custom("not null".to_string())
+                            )) {
+                                variant_matches.push((#variant_idx, 0));
+                            }
+                        }
+                    }
+                }
+                Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+                    // Tuple variant with single field
+                    let field_type = &fields.unnamed[0].ty;
+                    quote! {
+                        {
+                            // Clone context to track transformations independently
+                            let value_clone = value.clone();
+                            let mut attempt_ctx = ::tryparse::deserializer::CoercionContext::new();
+
+                            if let Ok(_val) = <#field_type as ::tryparse::deserializer::LlmDeserialize>::deserialize(&value_clone, &mut attempt_ctx) {
+                                let score: u32 = attempt_ctx.transformations().iter().map(|t| t.penalty()).sum();
+                                variant_matches.push((#variant_idx, score));
+                            }
+                        }
+                    }
+                }
+                Fields::Named(_) => {
+                    // Struct variant - use serde to try deserialization
+                    quote! {
+                        {
+                            // For struct variants, try serde deserialization
+                            if let Ok(result) = <Self as ::serde::Deserialize>::deserialize(&value.value) {
+                                // Check if it's the right variant
+                                match result {
+                                    Self::#variant_ident { .. } => {
+                                        // This variant matched
+                                        variant_matches.push((#variant_idx, 0));
+                                    }
+                                    _ => {
+                                        // Different variant matched, skip
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    // Multi-field tuple variants not supported
+                    quote! {}
+                }
+            }
+        })
+        .collect();
+
+    // Build match arms for final deserialization
+    let match_arms: Vec<_> = data
+        .variants
+        .iter()
+        .enumerate()
+        .map(|(idx, variant)| {
+            let variant_ident = &variant.ident;
+            let variant_idx = idx as u8;
+
+            match &variant.fields {
+                Fields::Unit => {
+                    quote! {
+                        #variant_idx => Ok(Self::#variant_ident),
+                    }
+                }
+                Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+                    let field_type = &fields.unnamed[0].ty;
+                    quote! {
+                        #variant_idx => {
+                            let val = <#field_type as ::tryparse::deserializer::LlmDeserialize>::deserialize(value, ctx)?;
+                            Ok(Self::#variant_ident(val))
+                        },
+                    }
+                }
+                Fields::Named(_) => {
+                    quote! {
+                        #variant_idx => {
+                            // For struct variants, deserialize the whole enum and verify it's the right variant
+                            let result = <Self as ::serde::Deserialize>::deserialize(&value.value)
+                                .map_err(|e| ::tryparse::error::ParseError::DeserializeFailed(
+                                    ::tryparse::error::DeserializeError::Custom(format!("serde error: {}", e))
+                                ))?;
+                            Ok(result)
+                        },
+                    }
+                }
+                _ => {
+                    quote! {
+                        #variant_idx => Err(::tryparse::error::ParseError::DeserializeFailed(
+                            ::tryparse::error::DeserializeError::Custom(
+                                "Multi-field tuple variants not supported in untagged enums".to_string()
+                            )
+                        )),
+                    }
+                }
+            }
+        })
+        .collect();
+
+    // Also generate try_deserialize attempts (strict matching)
+    let strict_attempts: Vec<_> = data
+        .variants
+        .iter()
+        .enumerate()
+        .map(|(idx, variant)| {
+            let variant_idx = idx as u8;
+
+            match &variant.fields {
+                Fields::Unit => {
+                    quote! {
+                        if value.value.is_null() {
+                            strict_matches.push(#variant_idx);
+                        }
+                    }
+                }
+                Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
+                    let field_type = &fields.unnamed[0].ty;
+                    quote! {
+                        if let Some(_) = <#field_type as ::tryparse::deserializer::LlmDeserialize>::try_deserialize(value, &mut ::tryparse::deserializer::CoercionContext::new()) {
+                            strict_matches.push(#variant_idx);
+                        }
+                    }
+                }
+                _ => quote! {}
+            }
+        })
+        .collect();
+
+    quote! {
+        fn deserialize(
+            value: &::tryparse::value::FlexValue,
+            ctx: &mut ::tryparse::deserializer::CoercionContext,
+        ) -> ::tryparse::error::Result<Self> {
+            use ::tryparse::deserializer::LlmDeserialize;
+            use serde::Deserialize;
+
+            // PHASE 1: Try strict matching first (try_deserialize - no coercion)
+            let mut strict_matches: Vec<u8> = Vec::new();
+
+            #(#strict_attempts)*
+
+            // If exactly one strict match, use it
+            if strict_matches.len() == 1 {
+                let best_variant_idx = strict_matches[0];
+                return match best_variant_idx {
+                    #(#match_arms)*
+                    _ => unreachable!(),
+                };
+            }
+
+            // PHASE 2: If no strict matches or multiple matches, try lenient with scoring
+            let mut variant_matches: Vec<(u8, u32)> = Vec::new();
+
+            #(#variant_attempts)*
+
+            // If no matches, return error
+            if variant_matches.is_empty() {
+                return Err(::tryparse::error::ParseError::DeserializeFailed(
+                    ::tryparse::error::DeserializeError::Custom(
+                        format!("No variant of {} matched the input", #name_str)
+                    )
+                ));
+            }
+
+            // Sort by score (lowest = best)
+            variant_matches.sort_by_key(|(_, score)| *score);
+
+            // Deserialize using the best match
+            let best_variant_idx = variant_matches[0].0;
+            match best_variant_idx {
+                #(#match_arms)*
+                _ => unreachable!(),
+            }
+        }
+    }
 }
 
 /// Generate union deserialization code for enums with #[llm(union)].
