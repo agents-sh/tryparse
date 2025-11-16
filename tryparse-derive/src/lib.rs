@@ -473,20 +473,24 @@ fn generate_tagged_enum_deserialize(
                 #rename_all
             );
 
-            // Track transformation if tag value was normalized
-            if tag_value != normalized_variant {
+            // Only clone and normalize if tag value differs
+            let normalized_value = if tag_value == normalized_variant {
+                // Tag already matches, use original object without cloning
+                Value::Object(obj.clone())
+            } else {
+                // Track transformation for normalized tag
                 ctx.add_transformation(::tryparse::value::Transformation::FieldNameCaseChanged {
                     from: tag_value.to_string(),
                     to: normalized_variant.clone(),
                 });
-            }
 
-            // Clone the object and update the tag field with the normalized variant
-            let mut normalized_obj = obj.clone();
-            normalized_obj.insert(#tag_field.to_string(), Value::String(normalized_variant));
+                // Clone and update the tag field with the normalized variant
+                let mut normalized_obj = obj.clone();
+                normalized_obj.insert(#tag_field.to_string(), Value::String(normalized_variant));
+                Value::Object(normalized_obj)
+            };
 
             // Deserialize using serde's standard Deserialize trait
-            let normalized_value = Value::Object(normalized_obj);
             <Self as ::serde::Deserialize>::deserialize(normalized_value)
                 .map_err(|e| {
                     ::tryparse::error::ParseError::DeserializeFailed(
