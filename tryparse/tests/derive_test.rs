@@ -546,3 +546,799 @@ fn test_struct_with_hashmap_and_other_fields() {
     );
     assert_eq!(data.metadata.get("author"), Some(&"Alice".to_string()));
 }
+
+// ===== Internally-Tagged Enum Tests =====
+
+#[cfg(feature = "derive")]
+#[derive(Debug, PartialEq, LlmDeserialize, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum Decision {
+    StartTask {
+        skill_id: String,
+        reasoning: String,
+    },
+    AskClarification {
+        message: String,
+    },
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_tagged_enum_exact_match() {
+    let json = json!({
+        "type": "start_task",
+        "skill_id": "test",
+        "reasoning": "clear"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = Decision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, Decision::StartTask { .. }));
+
+    if let Decision::StartTask { skill_id, reasoning } = result {
+        assert_eq!(skill_id, "test");
+        assert_eq!(reasoning, "clear");
+    }
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_tagged_enum_pascal_case_tag() {
+    let json = json!({
+        "type": "StartTask",
+        "skill_id": "test",
+        "reasoning": "clear"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = Decision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, Decision::StartTask { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_tagged_enum_camel_case_tag() {
+    let json = json!({
+        "type": "startTask",
+        "skill_id": "test",
+        "reasoning": "clear"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = Decision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, Decision::StartTask { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_tagged_enum_kebab_case_tag() {
+    let json = json!({
+        "type": "start-task",
+        "skill_id": "test",
+        "reasoning": "clear"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = Decision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, Decision::StartTask { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_tagged_enum_uppercase_tag() {
+    let json = json!({
+        "type": "STARTTASK",
+        "skill_id": "test",
+        "reasoning": "clear"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = Decision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, Decision::StartTask { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_tagged_enum_fuzzy_tag_with_fields() {
+    // Tag uses fuzzy matching, fields use standard serde deserialization
+    // NOTE: Field fuzzy matching for internally-tagged enums requires adding
+    // #[serde(rename_all = "snake_case")] to the variant fields or implementing
+    // custom field normalization (future enhancement)
+    let json = json!({
+        "type": "StartTask",  // Fuzzy tag matching works
+        "skill_id": "test",   // Fields must match exactly (or use serde's rename)
+        "reasoning": "clear"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = Decision::deserialize(&value, &mut ctx).unwrap();
+
+    match result {
+        Decision::StartTask { skill_id, .. } => assert_eq!(skill_id, "test"),
+        _ => panic!("Wrong variant"),
+    }
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_tagged_enum_ask_clarification() {
+    let json = json!({
+        "type": "ask_clarification",
+        "message": "What do you mean?"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = Decision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, Decision::AskClarification { .. }));
+
+    if let Decision::AskClarification { message } = result {
+        assert_eq!(message, "What do you mean?");
+    }
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_tagged_enum_ask_clarification_fuzzy() {
+    // Fuzzy tag matching
+    let json = json!({
+        "type": "AskClarification",  // PascalCase
+        "message": "What do you mean?"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = Decision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, Decision::AskClarification { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_tagged_enum_invalid_variant() {
+    let json = json!({
+        "type": "UnknownVariant",
+        "data": "test"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = Decision::deserialize(&value, &mut ctx);
+    assert!(result.is_err());
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_tagged_enum_missing_tag() {
+    let json = json!({
+        "skill_id": "test",
+        "reasoning": "clear"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = Decision::deserialize(&value, &mut ctx);
+    assert!(result.is_err());
+}
+
+#[cfg(feature = "derive")]
+#[derive(Debug, PartialEq, LlmDeserialize, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind")]
+enum Action {
+    Create { name: String },
+    Delete { id: i64 },
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_tagged_enum_without_rename_all() {
+    // No rename_all specified, so variants should match as-is (PascalCase)
+    let json = json!({
+        "kind": "Create",
+        "name": "test"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = Action::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, Action::Create { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_tagged_enum_without_rename_all_fuzzy() {
+    // Fuzzy matching should still work
+    let json = json!({
+        "kind": "create",  // lowercase
+        "name": "test"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = Action::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, Action::Create { .. }));
+}
+
+// ===== NegotiationDecision Tests (Comprehensive Real-World Scenarios) =====
+
+#[cfg(feature = "derive")]
+#[derive(Debug, PartialEq, LlmDeserialize, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum NegotiationDecision {
+    /// The user's intent is clear and matches an available skill.
+    StartTask {
+        skill_id: String,
+        reasoning: String,
+    },
+    /// The user's intent is unclear or missing critical information.
+    AskClarification {
+        message: String,
+    },
+    /// The user's request is outside the scope of available skills.
+    Reject {
+        reason: String,
+    },
+}
+
+// --- StartTask Variant Tests ---
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_start_task_exact() {
+    let json = json!({
+        "type": "start_task",
+        "skill_id": "web_search",
+        "reasoning": "User wants to search the web"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+
+    match result {
+        NegotiationDecision::StartTask { skill_id, reasoning } => {
+            assert_eq!(skill_id, "web_search");
+            assert_eq!(reasoning, "User wants to search the web");
+        }
+        _ => panic!("Expected StartTask variant"),
+    }
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_start_task_pascal_case() {
+    let json = json!({
+        "type": "StartTask",
+        "skill_id": "file_manager",
+        "reasoning": "User needs file operations"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, NegotiationDecision::StartTask { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_start_task_camel_case() {
+    let json = json!({
+        "type": "startTask",
+        "skill_id": "calculator",
+        "reasoning": "Math calculation needed"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, NegotiationDecision::StartTask { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_start_task_kebab_case() {
+    let json = json!({
+        "type": "start-task",
+        "skill_id": "email_sender",
+        "reasoning": "Send email"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, NegotiationDecision::StartTask { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_start_task_uppercase() {
+    let json = json!({
+        "type": "STARTTASK",
+        "skill_id": "database_query",
+        "reasoning": "Query database"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, NegotiationDecision::StartTask { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_start_task_mixed_case() {
+    let json = json!({
+        "type": "Start_Task",
+        "skill_id": "api_caller",
+        "reasoning": "Call external API"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, NegotiationDecision::StartTask { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_start_task_typo_tolerance() {
+    // Small typo: "StartTaks" (missing 's')
+    let json = json!({
+        "type": "StartTaks",
+        "skill_id": "test_skill",
+        "reasoning": "Testing typo tolerance"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    // Should match via Levenshtein distance
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, NegotiationDecision::StartTask { .. }));
+}
+
+// --- AskClarification Variant Tests ---
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_ask_clarification_exact() {
+    let json = json!({
+        "type": "ask_clarification",
+        "message": "What file would you like to open?"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+
+    match result {
+        NegotiationDecision::AskClarification { message } => {
+            assert_eq!(message, "What file would you like to open?");
+        }
+        _ => panic!("Expected AskClarification variant"),
+    }
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_ask_clarification_pascal_case() {
+    let json = json!({
+        "type": "AskClarification",
+        "message": "Please specify the URL"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, NegotiationDecision::AskClarification { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_ask_clarification_camel_case() {
+    let json = json!({
+        "type": "askClarification",
+        "message": "Which database table?"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, NegotiationDecision::AskClarification { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_ask_clarification_kebab_case() {
+    let json = json!({
+        "type": "ask-clarification",
+        "message": "What is the recipient email?"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, NegotiationDecision::AskClarification { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_ask_clarification_screaming_snake() {
+    let json = json!({
+        "type": "ASK_CLARIFICATION",
+        "message": "Please clarify your request"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, NegotiationDecision::AskClarification { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_ask_clarification_abbreviated() {
+    // "clarification" substring should match
+    let json = json!({
+        "type": "clarification",
+        "message": "Need more info"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, NegotiationDecision::AskClarification { .. }));
+}
+
+// --- Reject Variant Tests ---
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_reject_exact() {
+    let json = json!({
+        "type": "reject",
+        "reason": "This request is outside my capabilities"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+
+    match result {
+        NegotiationDecision::Reject { reason } => {
+            assert_eq!(reason, "This request is outside my capabilities");
+        }
+        _ => panic!("Expected Reject variant"),
+    }
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_reject_pascal_case() {
+    let json = json!({
+        "type": "Reject",
+        "reason": "Cannot process this type of request"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, NegotiationDecision::Reject { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_reject_uppercase() {
+    let json = json!({
+        "type": "REJECT",
+        "reason": "Out of scope"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, NegotiationDecision::Reject { .. }));
+}
+
+// --- Error Cases ---
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_invalid_variant() {
+    let json = json!({
+        "type": "unknown_action",
+        "data": "test"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx);
+    assert!(result.is_err());
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_missing_type_field() {
+    let json = json!({
+        "skill_id": "test",
+        "reasoning": "missing type field"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx);
+    assert!(result.is_err());
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_missing_required_field() {
+    let json = json!({
+        "type": "start_task",
+        "skill_id": "test"
+        // Missing "reasoning" field
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx);
+    assert!(result.is_err());
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_wrong_type_value() {
+    let json = json!({
+        "type": 123,  // Should be string
+        "message": "test"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx);
+    assert!(result.is_err());
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_not_an_object() {
+    let json = json!("start_task");  // String instead of object
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx);
+    assert!(result.is_err());
+}
+
+// --- Real-World LLM Response Scenarios ---
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_llm_response_with_markdown() {
+    let llm_output = r#"
+    Based on the user's request, I'll proceed with the following decision:
+
+    ```json
+    {
+        "type": "StartTask",
+        "skill_id": "web_search",
+        "reasoning": "The user wants to search for information online"
+    }
+    ```
+    "#;
+
+    let result: NegotiationDecision = tryparse::parse_llm(llm_output).unwrap();
+    assert!(matches!(result, NegotiationDecision::StartTask { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_llm_response_messy_json() {
+    // Trailing comma, unquoted keys
+    let json = r#"{
+        type: "AskClarification",
+        message: "Could you please specify which file you'd like to open?",
+    }"#;
+
+    let result: NegotiationDecision = tryparse::parse_llm(json).unwrap();
+    assert!(matches!(result, NegotiationDecision::AskClarification { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_llm_varied_casing() {
+    // Mix of different casing conventions
+    let json = json!({
+        "type": "START_TASK",  // SCREAMING_SNAKE_CASE
+        "skill_id": "data_processor",
+        "reasoning": "Process the data file"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+    assert!(matches!(result, NegotiationDecision::StartTask { .. }));
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_all_three_variants() {
+    // Test that all three variants can coexist and be parsed correctly
+    let test_cases = vec![
+        (json!({"type": "start_task", "skill_id": "s1", "reasoning": "r1"}), "StartTask"),
+        (json!({"type": "ask_clarification", "message": "m1"}), "AskClarification"),
+        (json!({"type": "reject", "reason": "r1"}), "Reject"),
+    ];
+
+    for (json, expected_variant) in test_cases {
+        let value = FlexValue::new(json, Source::Direct);
+        let mut ctx = CoercionContext::new();
+
+        let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+
+        match (result, expected_variant) {
+            (NegotiationDecision::StartTask { .. }, "StartTask") => {},
+            (NegotiationDecision::AskClarification { .. }, "AskClarification") => {},
+            (NegotiationDecision::Reject { .. }, "Reject") => {},
+            _ => panic!("Variant mismatch"),
+        }
+    }
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_complex_messages() {
+    // Test with complex multi-line messages
+    let json = json!({
+        "type": "AskClarification",
+        "message": "I need more information:\n1. Which file?\n2. What operation?\n3. When?"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+
+    if let NegotiationDecision::AskClarification { message } = result {
+        assert!(message.contains("Which file?"));
+        assert!(message.contains("What operation?"));
+    } else {
+        panic!("Expected AskClarification");
+    }
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_empty_strings() {
+    // Test with empty string fields (should succeed, validation is separate concern)
+    let json = json!({
+        "type": "reject",
+        "reason": ""
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+
+    if let NegotiationDecision::Reject { reason } = result {
+        assert_eq!(reason, "");
+    } else {
+        panic!("Expected Reject");
+    }
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_unicode_content() {
+    let json = json!({
+        "type": "start_task",
+        "skill_id": "translator_🌍",
+        "reasoning": "用户想要翻译文本"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx).unwrap();
+
+    if let NegotiationDecision::StartTask { skill_id, reasoning } = result {
+        assert_eq!(skill_id, "translator_🌍");
+        assert_eq!(reasoning, "用户想要翻译文本");
+    } else {
+        panic!("Expected StartTask");
+    }
+}
+
+// ===== Field Fuzzy Matching for Internally-Tagged Enums =====
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_field_fuzzy_match_works() {
+    // This test verifies that field fuzzy matching works for internally-tagged enums
+    // Tag fuzzy matches (StartTask → start_task) ✅
+    // Fields also fuzzy match (skillId → skill_id) ✅
+
+    let json = json!({
+        "type": "StartTask",  // ✅ Fuzzy matches to start_task
+        "skillId": "test",    // ✅ camelCase fuzzy matches to skill_id
+        "reasoning": "clear"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    let result = NegotiationDecision::deserialize(&value, &mut ctx);
+
+    // Field fuzzy matching now works!
+    assert!(result.is_ok(), "Field fuzzy matching should work for internally-tagged enums");
+
+    match result.unwrap() {
+        NegotiationDecision::StartTask { skill_id, reasoning } => {
+            assert_eq!(skill_id, "test");
+            assert_eq!(reasoning, "clear");
+        }
+        _ => panic!("Expected StartTask variant"),
+    }
+}
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_negotiation_compare_with_regular_struct() {
+    // Compare: Regular struct WITH fuzzy field matching
+    #[derive(Debug, LlmDeserialize)]
+    struct RegularStruct {
+        skill_id: String,
+        reasoning: String,
+    }
+
+    let json = json!({
+        "skillId": "test",    // camelCase
+        "reasoning": "clear"
+    });
+
+    let value = FlexValue::new(json, Source::Direct);
+    let mut ctx = CoercionContext::new();
+
+    // Regular struct DOES fuzzy match fields ✅
+    let result = RegularStruct::deserialize(&value, &mut ctx);
+    assert!(result.is_ok(), "Regular structs DO support fuzzy field matching");
+}

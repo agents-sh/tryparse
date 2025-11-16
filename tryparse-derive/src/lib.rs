@@ -400,6 +400,66 @@ fn generate_enum_deserialize(
     }
 }
 
+/// Apply rename_all transformation at compile time (in proc macro).
+/// This is used to pre-compute normalized variant names for matching.
+fn apply_rename_all_at_compile_time(s: &str, rule: &str) -> String {
+    match rule {
+        "snake_case" => {
+            let mut result = String::new();
+            for ch in s.chars() {
+                if ch.is_uppercase() {
+                    if !result.is_empty() {
+                        result.push('_');
+                    }
+                    result.push(ch.to_ascii_lowercase());
+                } else {
+                    result.push(ch);
+                }
+            }
+            result
+        }
+        "camelCase" => {
+            let mut chars = s.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_lowercase().collect::<String>() + chars.as_str(),
+            }
+        }
+        "PascalCase" => {
+            let mut chars = s.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            }
+        }
+        "SCREAMING_SNAKE_CASE" => {
+            let mut result = String::new();
+            for ch in s.chars() {
+                if ch.is_uppercase() && !result.is_empty() {
+                    result.push('_');
+                }
+                result.push(ch.to_ascii_uppercase());
+            }
+            result
+        }
+        "kebab-case" => {
+            let mut result = String::new();
+            for ch in s.chars() {
+                if ch.is_uppercase() {
+                    if !result.is_empty() {
+                        result.push('-');
+                    }
+                    result.push(ch.to_ascii_lowercase());
+                } else {
+                    result.push(ch);
+                }
+            }
+            result
+        }
+        _ => s.to_string(),
+    }
+}
+
 /// Generate deserialization code for internally-tagged enums.
 ///
 /// Handles #[serde(tag = "type", rename_all = "snake_case")] enums with fuzzy tag matching.
@@ -413,6 +473,26 @@ fn generate_tagged_enum_deserialize(
 
     // Build a map of variant names after applying rename_all transformation
     let variant_names: Vec<_> = data.variants.iter().map(|v| v.ident.to_string()).collect();
+
+    // Extract field names from each variant for fuzzy matching
+    let variant_fields: Vec<Vec<String>> = data
+        .variants
+        .iter()
+        .map(|v| match &v.fields {
+            Fields::Named(fields) => fields
+                .named
+                .iter()
+                .map(|f| f.ident.as_ref().unwrap().to_string())
+                .collect(),
+            _ => vec![],
+        })
+        .collect();
+
+    // Manually apply rename_all transformation at compile time for matching
+    let variant_names_normalized: Vec<String> = variant_names
+        .iter()
+        .map(|name| apply_rename_all_at_compile_time(name, rename_all))
+        .collect();
 
     // Build EnumMatcher setup with all variants
     let matcher_setup = variant_names.iter().map(|variant_name| {
@@ -488,24 +568,45 @@ fn generate_tagged_enum_deserialize(
                 #rename_all
             );
 
-            // Only clone and normalize if tag value differs
-            let normalized_value = if tag_value == normalized_variant {
-                // Tag already matches, use original object without cloning
-                Value::Object(obj.clone())
-            } else {
-                // Track transformation for normalized tag
+            // Get expected field names for this variant
+            let expected_fields: Vec<&str> = match normalized_variant.as_str() {
+                #(
+                    #variant_names_normalized => vec![#(#variant_fields),*],
+                )*
+                _ => vec![],
+            };
+
+            // Clone object for normalization
+            let mut normalized_obj = obj.clone();
+
+            // Track if tag was normalized
+            if tag_value != normalized_variant {
                 ctx.add_transformation(::tryparse::value::Transformation::FieldNameCaseChanged {
                     from: tag_value.to_string(),
                     to: normalized_variant.clone(),
                 });
-
-                // Clone and update the tag field with the normalized variant
-                let mut normalized_obj = obj.clone();
                 normalized_obj.insert(#tag_field.to_string(), Value::String(normalized_variant));
-                Value::Object(normalized_obj)
-            };
+            }
+
+            // Fuzzy match and normalize field names
+            for expected_field in expected_fields {
+                let matcher = ::tryparse::deserializer::struct_coercer::FieldMatcher::new(expected_field);
+                if let Some((json_key, _)) = matcher.find_in_object(&obj) {
+                    if json_key != expected_field {
+                        // Field name differs - normalize it
+                        if let Some(value) = normalized_obj.remove(json_key) {
+                            normalized_obj.insert(expected_field.to_string(), value);
+                            ctx.add_transformation(::tryparse::value::Transformation::FieldNameCaseChanged {
+                                from: json_key.clone(),
+                                to: expected_field.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
 
             // Deserialize using serde's standard Deserialize trait
+            let normalized_value = Value::Object(normalized_obj);
             <Self as ::serde::Deserialize>::deserialize(normalized_value)
                 .map_err(|e| {
                     ::tryparse::error::ParseError::DeserializeFailed(
