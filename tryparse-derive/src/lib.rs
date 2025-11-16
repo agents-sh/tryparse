@@ -460,9 +460,24 @@ fn generate_tagged_enum_deserialize(
             // Use fuzzy matching to find the best variant
             let matched_variant = matcher.match_string(tag_value)
                 .map_err(|_| {
+                    // Build list of valid variant names
+                    let valid_variants = vec![#(#variant_names),*];
+
+                    // Find closest match using levenshtein distance
+                    let closest = valid_variants.iter()
+                        .min_by_key(|v| ::tryparse::deserializer::enum_coercer::levenshtein_distance(tag_value, v))
+                        .map(|s| *s)
+                        .unwrap_or("");
+
                     ::tryparse::error::ParseError::DeserializeFailed(
                         ::tryparse::error::DeserializeError::Custom(
-                            format!("Unknown variant '{}' for tag field '{}'", tag_value, #tag_field)
+                            format!(
+                                "Unknown variant '{}' for tag field '{}'. Valid variants: [{}]. Did you mean '{}'?",
+                                tag_value,
+                                #tag_field,
+                                valid_variants.join(", "),
+                                closest
+                            )
                         )
                     )
                 })?;
