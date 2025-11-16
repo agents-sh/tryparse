@@ -326,8 +326,13 @@ fn extract_option_inner(ty: &Type) -> Type {
 fn generate_enum_deserialize(
     name: &syn::Ident,
     data: &syn::DataEnum,
-    _attrs: &[syn::Attribute],
+    attrs: &[syn::Attribute],
 ) -> proc_macro2::TokenStream {
+    // Check if this is an internally-tagged enum
+    if let Some(tag_info) = extract_tag_info(attrs) {
+        return generate_tagged_enum_deserialize(name, data, tag_info);
+    }
+
     let name_str = name.to_string();
 
     // Build EnumMatcher setup with all variants
@@ -393,6 +398,161 @@ fn generate_enum_deserialize(
     }
 }
 
+/// Generate deserialization code for internally-tagged enums.
+///
+/// Handles #[serde(tag = "type", rename_all = "snake_case")] enums with fuzzy tag matching.
+fn generate_tagged_enum_deserialize(
+    _name: &syn::Ident,
+    data: &syn::DataEnum,
+    tag_info: TaggedEnumInfo,
+) -> proc_macro2::TokenStream {
+    let tag_field = &tag_info.tag_field;
+    let rename_all = tag_info.rename_all.as_deref().unwrap_or("none");
+
+    // Build a map of variant names after applying rename_all transformation
+    let variant_names: Vec<_> = data.variants.iter().map(|v| v.ident.to_string()).collect();
+
+    // Build EnumMatcher setup with all variants
+    let matcher_setup = variant_names.iter().map(|variant_name| {
+        quote! {
+            .variant(::tryparse::deserializer::enum_coercer::EnumVariant::new(#variant_name))
+        }
+    });
+
+    quote! {
+        fn deserialize(
+            value: &::tryparse::value::FlexValue,
+            ctx: &mut ::tryparse::deserializer::CoercionContext,
+        ) -> ::tryparse::error::Result<Self> {
+            use serde::Deserialize;
+            use serde_json::Value;
+
+            // Must be an object for internally-tagged enums
+            let obj = match &value.value {
+                Value::Object(obj) => obj,
+                _ => {
+                    return Err(::tryparse::error::ParseError::DeserializeFailed(
+                        ::tryparse::error::DeserializeError::type_mismatch(
+                            "object (internally-tagged enum)",
+                            "non-object"
+                        )
+                    ));
+                }
+            };
+
+            // Extract the tag field value
+            let tag_value = obj.get(#tag_field)
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    ::tryparse::error::ParseError::DeserializeFailed(
+                        ::tryparse::error::DeserializeError::Custom(
+                            format!("Missing or non-string tag field '{}'", #tag_field)
+                        )
+                    )
+                })?;
+
+            // Build matcher with all enum variants
+            let matcher = ::tryparse::deserializer::enum_coercer::EnumMatcher::new()
+                #(#matcher_setup)*;
+
+            // Use fuzzy matching to find the best variant
+            let matched_variant = matcher.match_string(tag_value)
+                .map_err(|_| {
+                    ::tryparse::error::ParseError::DeserializeFailed(
+                        ::tryparse::error::DeserializeError::Custom(
+                            format!("Unknown variant '{}' for tag field '{}'", tag_value, #tag_field)
+                        )
+                    )
+                })?;
+
+            // Apply rename_all transformation to the matched variant
+            let normalized_variant = match #rename_all {
+                "snake_case" => {
+                    // Convert PascalCase or camelCase to snake_case
+                    let mut result = String::new();
+                    for ch in matched_variant.chars() {
+                        if ch.is_uppercase() {
+                            if !result.is_empty() {
+                                result.push('_');
+                            }
+                            result.push(ch.to_ascii_lowercase());
+                        } else {
+                            result.push(ch);
+                        }
+                    }
+                    result
+                }
+                "camelCase" => {
+                    // Convert to camelCase (first char lowercase)
+                    let mut chars = matched_variant.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(first) => first.to_lowercase().collect::<String>() + chars.as_str(),
+                    }
+                }
+                "PascalCase" => {
+                    // Convert to PascalCase (first char uppercase)
+                    let mut chars = matched_variant.chars();
+                    match chars.next() {
+                        None => String::new(),
+                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                    }
+                }
+                "SCREAMING_SNAKE_CASE" => {
+                    // Convert to SCREAMING_SNAKE_CASE
+                    let mut result = String::new();
+                    for ch in matched_variant.chars() {
+                        if ch.is_uppercase() && !result.is_empty() {
+                            result.push('_');
+                        }
+                        result.push(ch.to_ascii_uppercase());
+                    }
+                    result
+                }
+                "kebab-case" => {
+                    // Convert to kebab-case
+                    let mut result = String::new();
+                    for ch in matched_variant.chars() {
+                        if ch.is_uppercase() {
+                            if !result.is_empty() {
+                                result.push('-');
+                            }
+                            result.push(ch.to_ascii_lowercase());
+                        } else {
+                            result.push(ch);
+                        }
+                    }
+                    result
+                }
+                _ => matched_variant.clone(),
+            };
+
+            // Track transformation if tag value was normalized
+            if tag_value != normalized_variant {
+                ctx.add_transformation(::tryparse::value::Transformation::FieldNameCaseChanged {
+                    from: tag_value.to_string(),
+                    to: normalized_variant.clone(),
+                });
+            }
+
+            // Clone the object and update the tag field with the normalized variant
+            let mut normalized_obj = obj.clone();
+            normalized_obj.insert(#tag_field.to_string(), Value::String(normalized_variant));
+
+            // Deserialize using serde's standard Deserialize trait
+            let normalized_value = Value::Object(normalized_obj);
+            <Self as ::serde::Deserialize>::deserialize(normalized_value)
+                .map_err(|e| {
+                    ::tryparse::error::ParseError::DeserializeFailed(
+                        ::tryparse::error::DeserializeError::Custom(
+                            format!("Failed to deserialize internally-tagged enum: {}", e)
+                        )
+                    )
+                })
+        }
+    }
+}
+
 /// Check if enum has #[llm(union)] attribute.
 fn has_union_attribute(attrs: &[syn::Attribute]) -> bool {
     attrs.iter().any(|attr| {
@@ -404,6 +564,50 @@ fn has_union_attribute(attrs: &[syn::Attribute]) -> bool {
             }
         }
         false
+    })
+}
+
+/// Metadata about an internally-tagged enum.
+#[derive(Debug, Clone)]
+struct TaggedEnumInfo {
+    /// The tag field name (e.g., "type")
+    tag_field: String,
+    /// The rename_all rule (e.g., "snake_case")
+    rename_all: Option<String>,
+}
+
+/// Extract serde tag information from enum attributes.
+///
+/// Looks for #[serde(tag = "type")] and #[serde(rename_all = "snake_case")].
+fn extract_tag_info(attrs: &[syn::Attribute]) -> Option<TaggedEnumInfo> {
+    let mut tag_field: Option<String> = None;
+    let mut rename_all: Option<String> = None;
+
+    for attr in attrs {
+        if !attr.path().is_ident("serde") {
+            continue;
+        }
+
+        // Use parse_nested_meta for syn 2.0
+        let _ = attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("tag") {
+                // Parse tag = "value"
+                let value = meta.value()?;
+                let lit: syn::LitStr = value.parse()?;
+                tag_field = Some(lit.value());
+            } else if meta.path.is_ident("rename_all") {
+                // Parse rename_all = "value"
+                let value = meta.value()?;
+                let lit: syn::LitStr = value.parse()?;
+                rename_all = Some(lit.value());
+            }
+            Ok(())
+        });
+    }
+
+    tag_field.map(|tag| TaggedEnumInfo {
+        tag_field: tag,
+        rename_all,
     })
 }
 
