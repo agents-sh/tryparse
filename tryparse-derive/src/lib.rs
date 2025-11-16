@@ -477,16 +477,50 @@ fn generate_tagged_enum_deserialize(
     let variant_names: Vec<_> = data.variants.iter().map(|v| v.ident.to_string()).collect();
 
     // Extract field names from each variant for fuzzy matching
+    // Also validate variant-level rename_all attributes
     let variant_fields: Vec<Vec<String>> = data
         .variants
         .iter()
-        .map(|v| match &v.fields {
-            Fields::Named(fields) => fields
-                .named
-                .iter()
-                .map(|f| f.ident.as_ref().unwrap().to_string())
-                .collect(),
-            _ => vec![],
+        .map(|v| {
+            // Validate variant-level rename_all if present
+            for attr in &v.attrs {
+                if attr.path().is_ident("serde") {
+                    let _ = attr.parse_nested_meta(|meta| {
+                        if meta.path.is_ident("rename_all") {
+                            let value = meta.value()?;
+                            let lit: syn::LitStr = value.parse()?;
+                            let rule = lit.value();
+
+                            let valid = [
+                                "snake_case",
+                                "camelCase",
+                                "PascalCase",
+                                "kebab-case",
+                                "SCREAMING_SNAKE_CASE",
+                            ];
+
+                            if !valid.contains(&rule.as_str()) {
+                                eprintln!(
+                                    "Warning: Invalid variant-level rename_all value '{}' on variant '{}'. Valid values: {}",
+                                    rule,
+                                    v.ident,
+                                    valid.join(", ")
+                                );
+                            }
+                        }
+                        Ok(())
+                    });
+                }
+            }
+
+            match &v.fields {
+                Fields::Named(fields) => fields
+                    .named
+                    .iter()
+                    .map(|f| f.ident.as_ref().unwrap().to_string())
+                    .collect(),
+                _ => vec![],
+            }
         })
         .collect();
 

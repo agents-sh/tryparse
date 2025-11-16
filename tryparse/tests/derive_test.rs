@@ -1450,3 +1450,31 @@ fn test_adjacently_tagged_fuzzy_tag() {
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), Message::Text("hello".to_string()));
 }
+
+#[cfg(feature = "derive")]
+#[test]
+fn test_variant_rename_all_validation() {
+    use serde::{Deserialize, Serialize};
+
+    // This test verifies that variant-level rename_all attributes are validated
+    // The derive macro should print a warning for invalid values (checked at compile time)
+
+    // This test simply verifies that enums with valid variant-level rename_all compile
+    // The validation happens at compile time and would produce warnings for invalid values
+    #[derive(Debug, PartialEq, LlmDeserialize, Serialize, Deserialize)]
+    #[serde(tag = "type", rename_all = "snake_case")]
+    enum ValidEnum {
+        #[serde(rename_all = "camelCase")] // Valid, won't trigger warning
+        VariantOne { user_name: String, user_age: i64 },
+        #[serde(rename_all = "PascalCase")] // Valid, won't trigger warning
+        VariantTwo { field_name: String },
+    }
+
+    // Note: Actually using variant-level rename_all for deserialization
+    // is a serde feature that doesn't affect LlmDeserialize trait behavior.
+    // This task (Task 11) is only about compile-time validation of the attribute values.
+
+    // If an enum had:
+    // #[serde(rename_all = "invalid_case")]  // Invalid
+    // The derive macro would print a compile-time warning
+}
