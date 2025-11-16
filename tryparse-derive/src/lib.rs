@@ -329,8 +329,10 @@ fn generate_enum_deserialize(
     attrs: &[syn::Attribute],
 ) -> proc_macro2::TokenStream {
     // Check if this is an internally-tagged enum
-    if let Some(tag_info) = extract_tag_info(attrs) {
-        return generate_tagged_enum_deserialize(name, data, tag_info);
+    match extract_tag_info(attrs) {
+        Ok(Some(tag_info)) => return generate_tagged_enum_deserialize(name, data, tag_info),
+        Ok(None) => {} // Continue with regular enum deserialization
+        Err(err) => return err, // Return compile error
     }
 
     let name_str = name.to_string();
@@ -523,9 +525,11 @@ struct TaggedEnumInfo {
 /// Extract serde tag information from enum attributes.
 ///
 /// Looks for #[serde(tag = "type")] and #[serde(rename_all = "snake_case")].
-fn extract_tag_info(attrs: &[syn::Attribute]) -> Option<TaggedEnumInfo> {
+/// Returns Err with compile error if rename_all has an invalid value.
+fn extract_tag_info(attrs: &[syn::Attribute]) -> Result<Option<TaggedEnumInfo>, proc_macro2::TokenStream> {
     let mut tag_field: Option<String> = None;
     let mut rename_all: Option<String> = None;
+    let mut rename_all_lit: Option<syn::LitStr> = None;
 
     for attr in attrs {
         if !attr.path().is_ident("serde") {
@@ -544,15 +548,31 @@ fn extract_tag_info(attrs: &[syn::Attribute]) -> Option<TaggedEnumInfo> {
                 let value = meta.value()?;
                 let lit: syn::LitStr = value.parse()?;
                 rename_all = Some(lit.value());
+                rename_all_lit = Some(lit);
             }
             Ok(())
         });
     }
 
-    tag_field.map(|tag| TaggedEnumInfo {
+    // Validate rename_all value if present
+    if let Some(rule) = &rename_all {
+        let valid = ["snake_case", "camelCase", "PascalCase", "kebab-case", "SCREAMING_SNAKE_CASE"];
+        if !valid.contains(&rule.as_str()) {
+            // Use the stored LitStr for proper error span
+            if let Some(lit) = rename_all_lit {
+                let error = syn::Error::new_spanned(
+                    lit,
+                    format!("Invalid rename_all value: '{}'. Valid values: {}", rule, valid.join(", "))
+                );
+                return Err(error.to_compile_error());
+            }
+        }
+    }
+
+    Ok(tag_field.map(|tag| TaggedEnumInfo {
         tag_field: tag,
         rename_all,
-    })
+    }))
 }
 
 /// Generate union deserialization code for enums with #[llm(union)].
