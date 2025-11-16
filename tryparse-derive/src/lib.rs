@@ -730,13 +730,63 @@ fn extract_tag_info(
             if meta.path.is_ident("tag") {
                 // Parse tag = "value"
                 let value = meta.value()?;
-                let lit: syn::LitStr = value.parse()?;
-                tag_field = Some(lit.value());
+
+                // Try to parse as expression first to detect const paths
+                match value.parse::<syn::Expr>() {
+                    Ok(syn::Expr::Lit(expr_lit)) => {
+                        if let syn::Lit::Str(lit_str) = &expr_lit.lit {
+                            tag_field = Some(lit_str.value());
+                        } else {
+                            return Err(syn::Error::new_spanned(
+                                &expr_lit.lit,
+                                "tag attribute value must be a string literal",
+                            ));
+                        }
+                    }
+                    Ok(syn::Expr::Path(_path)) => {
+                        return Err(syn::Error::new_spanned(
+                            meta.path,
+                            "tag attribute must be a string literal, const paths are not supported",
+                        ));
+                    }
+                    Ok(other) => {
+                        return Err(syn::Error::new_spanned(
+                            other,
+                            "tag attribute value must be a string literal",
+                        ));
+                    }
+                    Err(e) => return Err(e),
+                }
             } else if meta.path.is_ident("content") {
                 // Parse content = "value" for adjacently-tagged enums
                 let value = meta.value()?;
-                let lit: syn::LitStr = value.parse()?;
-                content_field = Some(lit.value());
+
+                // Try to parse as expression first to detect const paths
+                match value.parse::<syn::Expr>() {
+                    Ok(syn::Expr::Lit(expr_lit)) => {
+                        if let syn::Lit::Str(lit_str) = &expr_lit.lit {
+                            content_field = Some(lit_str.value());
+                        } else {
+                            return Err(syn::Error::new_spanned(
+                                &expr_lit.lit,
+                                "content attribute value must be a string literal",
+                            ));
+                        }
+                    }
+                    Ok(syn::Expr::Path(_path)) => {
+                        return Err(syn::Error::new_spanned(
+                            meta.path,
+                            "content attribute must be a string literal, const paths are not supported",
+                        ));
+                    }
+                    Ok(other) => {
+                        return Err(syn::Error::new_spanned(
+                            other,
+                            "content attribute value must be a string literal",
+                        ));
+                    }
+                    Err(e) => return Err(e),
+                }
             } else if meta.path.is_ident("rename_all") {
                 // Parse rename_all = "value"
                 let value = meta.value()?;
