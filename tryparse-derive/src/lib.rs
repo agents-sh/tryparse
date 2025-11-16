@@ -466,66 +466,10 @@ fn generate_tagged_enum_deserialize(
                 })?;
 
             // Apply rename_all transformation to the matched variant
-            let normalized_variant = match #rename_all {
-                "snake_case" => {
-                    // Convert PascalCase or camelCase to snake_case
-                    let mut result = String::new();
-                    for ch in matched_variant.chars() {
-                        if ch.is_uppercase() {
-                            if !result.is_empty() {
-                                result.push('_');
-                            }
-                            result.push(ch.to_ascii_lowercase());
-                        } else {
-                            result.push(ch);
-                        }
-                    }
-                    result
-                }
-                "camelCase" => {
-                    // Convert to camelCase (first char lowercase)
-                    let mut chars = matched_variant.chars();
-                    match chars.next() {
-                        None => String::new(),
-                        Some(first) => first.to_lowercase().collect::<String>() + chars.as_str(),
-                    }
-                }
-                "PascalCase" => {
-                    // Convert to PascalCase (first char uppercase)
-                    let mut chars = matched_variant.chars();
-                    match chars.next() {
-                        None => String::new(),
-                        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-                    }
-                }
-                "SCREAMING_SNAKE_CASE" => {
-                    // Convert to SCREAMING_SNAKE_CASE
-                    let mut result = String::new();
-                    for ch in matched_variant.chars() {
-                        if ch.is_uppercase() && !result.is_empty() {
-                            result.push('_');
-                        }
-                        result.push(ch.to_ascii_uppercase());
-                    }
-                    result
-                }
-                "kebab-case" => {
-                    // Convert to kebab-case
-                    let mut result = String::new();
-                    for ch in matched_variant.chars() {
-                        if ch.is_uppercase() {
-                            if !result.is_empty() {
-                                result.push('-');
-                            }
-                            result.push(ch.to_ascii_lowercase());
-                        } else {
-                            result.push(ch);
-                        }
-                    }
-                    result
-                }
-                _ => matched_variant.clone(),
-            };
+            let normalized_variant = ::tryparse::deserializer::struct_coercer::apply_rename_all(
+                &matched_variant,
+                #rename_all
+            );
 
             // Track transformation if tag value was normalized
             if tag_value != normalized_variant {

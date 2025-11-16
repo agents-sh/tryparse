@@ -227,6 +227,42 @@ pub fn to_snake_case(s: &str) -> String {
     result
 }
 
+/// Apply serde rename_all transformation to a string.
+///
+/// Supports all serde rename_all cases:
+/// - `snake_case` - Convert to snake_case
+/// - `camelCase` - Convert to camelCase (first char lowercase)
+/// - `PascalCase` - Convert to PascalCase (first char uppercase)
+/// - `SCREAMING_SNAKE_CASE` - Convert to SCREAMING_SNAKE_CASE
+/// - `kebab-case` - Convert to kebab-case
+///
+/// # Examples
+/// ```
+/// use tryparse::deserializer::struct_coercer::apply_rename_all;
+///
+/// assert_eq!(apply_rename_all("StartTask", "snake_case"), "start_task");
+/// assert_eq!(apply_rename_all("StartTask", "camelCase"), "startTask");
+/// assert_eq!(apply_rename_all("StartTask", "PascalCase"), "StartTask");
+/// assert_eq!(apply_rename_all("StartTask", "kebab-case"), "start-task");
+/// ```
+pub fn apply_rename_all(s: &str, rule: &str) -> String {
+    match rule {
+        "snake_case" => to_snake_case(s),
+        "camelCase" => to_camel_case(s),
+        "PascalCase" => {
+            // First char uppercase, rest unchanged
+            let mut chars = s.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            }
+        }
+        "SCREAMING_SNAKE_CASE" => to_snake_case(s).to_uppercase(),
+        "kebab-case" => to_snake_case(s).replace('_', "-"),
+        _ => s.to_string(),
+    }
+}
+
 /// Remove accents from characters to enable fuzzy matching.
 ///
 /// Port from `match_string.rs:141-159`.
