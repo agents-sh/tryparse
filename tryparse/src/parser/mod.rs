@@ -97,6 +97,126 @@ impl FlexibleParser {
         Self { strategies }
     }
 
+    /// Returns a builder for creating a parser with custom configuration.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use tryparse::parser::FlexibleParser;
+    /// use tryparse::parser::strategies::DirectJsonStrategy;
+    ///
+    /// // Create a minimal parser with only direct JSON
+    /// let parser = FlexibleParser::builder()
+    ///     .without_defaults()
+    ///     .with_strategy(Box::new(DirectJsonStrategy))
+    ///     .build();
+    ///
+    /// // Create a parser without YAML support
+    /// let parser = FlexibleParser::builder()
+    ///     .without_yaml()
+    ///     .build();
+    /// ```
+    pub fn builder() -> FlexibleParserBuilder {
+        FlexibleParserBuilder::new()
+    }
+}
+
+/// Builder for creating a `FlexibleParser` with custom configuration.
+pub struct FlexibleParserBuilder {
+    use_defaults: bool,
+    without_yaml: bool,
+    without_markdown: bool,
+    without_heuristic: bool,
+    additional_strategies: Vec<Box<dyn ParsingStrategy>>,
+}
+
+impl FlexibleParserBuilder {
+    /// Creates a new builder with default settings.
+    fn new() -> Self {
+        Self {
+            use_defaults: true,
+            without_yaml: false,
+            without_markdown: false,
+            without_heuristic: false,
+            additional_strategies: Vec::new(),
+        }
+    }
+
+    /// Disables all default strategies.
+    ///
+    /// You must add at least one strategy manually for parsing to work.
+    pub fn without_defaults(mut self) -> Self {
+        self.use_defaults = false;
+        self
+    }
+
+    /// Disables YAML parsing strategy.
+    #[cfg(feature = "yaml")]
+    pub fn without_yaml(mut self) -> Self {
+        self.without_yaml = true;
+        self
+    }
+
+    /// Disables markdown code block extraction.
+    pub fn without_markdown(mut self) -> Self {
+        self.without_markdown = true;
+        self
+    }
+
+    /// Disables heuristic JSON extraction from prose.
+    pub fn without_heuristic(mut self) -> Self {
+        self.without_heuristic = true;
+        self
+    }
+
+    /// Adds a custom parsing strategy.
+    ///
+    /// The strategy will be sorted by priority with other strategies.
+    pub fn with_strategy(mut self, strategy: Box<dyn ParsingStrategy>) -> Self {
+        self.additional_strategies.push(strategy);
+        self
+    }
+
+    /// Builds the `FlexibleParser` with the configured settings.
+    pub fn build(self) -> FlexibleParser {
+        let mut strategies: Vec<Box<dyn ParsingStrategy>> = if self.use_defaults {
+            let mut default_strategies: Vec<Box<dyn ParsingStrategy>> = vec![
+                Box::new(DirectJsonStrategy),
+                Box::new(JsonFixerStrategy::default()),
+                Box::new(RawPrimitiveStrategy::new()),
+                Box::new(StateMachineStrategy::new()),
+                Box::new(MultipleObjectsStrategy::new()),
+            ];
+
+            if !self.without_heuristic {
+                default_strategies.push(Box::new(HeuristicStrategy::default()));
+            }
+
+            if !self.without_markdown {
+                default_strategies.push(Box::new(MarkdownStrategy::default()));
+            }
+
+            #[cfg(feature = "yaml")]
+            if !self.without_yaml {
+                default_strategies.push(Box::new(YamlStrategy));
+            }
+
+            default_strategies
+        } else {
+            Vec::new()
+        };
+
+        // Add custom strategies
+        strategies.extend(self.additional_strategies);
+
+        // Sort by priority
+        strategies.sort_by_key(|s| s.priority());
+
+        FlexibleParser { strategies }
+    }
+}
+
+impl FlexibleParser {
     /// Parses the input using all strategies and returns all candidates.
     ///
     /// Each strategy is tried in priority order. All successful parses
