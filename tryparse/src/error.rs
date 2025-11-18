@@ -2,6 +2,36 @@
 
 use std::fmt;
 
+/// Format an unknown variant error message with optional suggestion.
+fn format_unknown_variant_error(
+    enum_name: &str,
+    variant: &str,
+    suggestion: &Option<String>,
+) -> String {
+    match suggestion {
+        Some(s) => format!(
+            "Unknown variant '{}' for enum {}. Did you mean '{}'?",
+            variant, enum_name, s
+        ),
+        None => format!("Unknown variant '{}' for enum {}", variant, enum_name),
+    }
+}
+
+/// Format an unknown field error message with optional suggestion.
+fn format_unknown_field_error(
+    struct_name: &str,
+    field: &str,
+    suggestion: &Option<String>,
+) -> String {
+    match suggestion {
+        Some(s) => format!(
+            "Unknown field '{}' in struct {}. Did you mean '{}'?",
+            field, struct_name, s
+        ),
+        None => format!("Unknown field '{}' in struct {}", field, struct_name),
+    }
+}
+
 /// Result type alias for parsing operations.
 pub type Result<T> = std::result::Result<T, ParseError>;
 
@@ -163,12 +193,25 @@ pub enum DeserializeError {
     },
 
     /// Unknown variant for enum.
-    #[error("Unknown variant '{variant}' for enum {enum_name}")]
+    #[error("{}", format_unknown_variant_error(.enum_name, .variant, .suggestion))]
     UnknownVariant {
         /// Enum type name.
         enum_name: String,
         /// The variant that was not recognized.
         variant: String,
+        /// Suggested similar variant, if any.
+        suggestion: Option<String>,
+    },
+
+    /// Unknown field in struct.
+    #[error("{}", format_unknown_field_error(.struct_name, .field, .suggestion))]
+    UnknownField {
+        /// Struct type name.
+        struct_name: String,
+        /// The field that was not recognized.
+        field: String,
+        /// Suggested similar field, if any.
+        suggestion: Option<String>,
     },
 
     /// Custom error message.
@@ -247,6 +290,50 @@ mod tests {
         let json_err = serde_json::from_str::<u32>("not a number").unwrap_err();
         let parse_err: ParseError = json_err.into();
         assert!(matches!(parse_err, ParseError::JsonError(_)));
+    }
+
+    #[test]
+    fn test_unknown_variant_with_suggestion() {
+        let err = DeserializeError::UnknownVariant {
+            enum_name: "Status".to_string(),
+            variant: "inprogress".to_string(),
+            suggestion: Some("InProgress".to_string()),
+        };
+
+        let display = err.to_string();
+        assert!(display.contains("inprogress"));
+        assert!(display.contains("Status"));
+        assert!(display.contains("Did you mean"));
+        assert!(display.contains("InProgress"));
+    }
+
+    #[test]
+    fn test_unknown_variant_without_suggestion() {
+        let err = DeserializeError::UnknownVariant {
+            enum_name: "Status".to_string(),
+            variant: "xyz".to_string(),
+            suggestion: None,
+        };
+
+        let display = err.to_string();
+        assert!(display.contains("xyz"));
+        assert!(display.contains("Status"));
+        assert!(!display.contains("Did you mean"));
+    }
+
+    #[test]
+    fn test_unknown_field_with_suggestion() {
+        let err = DeserializeError::UnknownField {
+            struct_name: "User".to_string(),
+            field: "usernme".to_string(),
+            suggestion: Some("username".to_string()),
+        };
+
+        let display = err.to_string();
+        assert!(display.contains("usernme"));
+        assert!(display.contains("User"));
+        assert!(display.contains("Did you mean"));
+        assert!(display.contains("username"));
     }
 
     #[test]

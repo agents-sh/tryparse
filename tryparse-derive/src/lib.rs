@@ -398,6 +398,7 @@ fn generate_enum_deserialize(
                     ::tryparse::error::DeserializeError::UnknownVariant {
                         enum_name: #name_str.to_string(),
                         variant: matched_variant,
+                        suggestion: None, // No suggestion at derive level
                     }
                 )),
             }

@@ -215,13 +215,45 @@ impl EnumMatcher {
             });
         }
 
-        // No match found
+        // No match found - find closest suggestion
+        let suggestion = self.find_closest_suggestion(&lowercase_input, &lowercase_candidates);
+
         Err(ParseError::DeserializeFailed(
             DeserializeError::UnknownVariant {
                 enum_name: "enum".to_string(),
                 variant: input.to_string(),
+                suggestion,
             },
         ))
+    }
+
+    /// Find the closest matching variant to suggest.
+    ///
+    /// Returns the closest variant if its edit distance is reasonable (< 50% of input length).
+    fn find_closest_suggestion(
+        &self,
+        input: &str,
+        lowercase_candidates: &[(&str, Vec<String>)],
+    ) -> Option<String> {
+        let mut best_match: Option<(&str, usize)> = None;
+        let max_distance = (input.len() / 2).max(2); // At most 50% of length, minimum 2
+
+        for (variant_name, match_strings) in lowercase_candidates {
+            for match_str in match_strings {
+                let distance = levenshtein_distance(input, match_str);
+                if distance <= max_distance {
+                    if let Some((_, best_dist)) = best_match {
+                        if distance < best_dist {
+                            best_match = Some((variant_name, distance));
+                        }
+                    } else {
+                        best_match = Some((variant_name, distance));
+                    }
+                }
+            }
+        }
+
+        best_match.map(|(name, _)| name.to_string())
     }
 
     /// Try exact match strategy.
