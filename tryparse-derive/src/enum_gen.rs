@@ -108,26 +108,27 @@ fn generate_tagged_enum_deserialize(
     let content_field = &tag_info.content_field;
     let rename_all = tag_info.rename_all.as_deref().unwrap_or("none");
 
+    // Validate all variant-level rename_all attributes first
+    for v in &data.variants {
+        if let Err(err) = validate_variant_rename_all(v) {
+            return err;
+        }
+    }
+
     // Build a map of variant names after applying rename_all transformation
     let variant_names: Vec<_> = data.variants.iter().map(|v| v.ident.to_string()).collect();
 
     // Extract field names from each variant for fuzzy matching
-    // Also validate variant-level rename_all attributes
     let variant_fields: Vec<Vec<String>> = data
         .variants
         .iter()
-        .map(|v| {
-            // Validate variant-level rename_all if present
-            validate_variant_rename_all(v);
-
-            match &v.fields {
-                Fields::Named(fields) => fields
-                    .named
-                    .iter()
-                    .map(|f| f.ident.as_ref().unwrap().to_string())
-                    .collect(),
-                _ => vec![],
-            }
+        .map(|v| match &v.fields {
+            Fields::Named(fields) => fields
+                .named
+                .iter()
+                .map(|f| f.ident.as_ref().unwrap().to_string())
+                .collect(),
+            _ => vec![],
         })
         .collect();
 

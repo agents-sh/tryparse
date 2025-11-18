@@ -63,7 +63,7 @@ pub fn extract_tag_info(attrs: &[syn::Attribute]) -> Result<Option<TaggedEnumInf
         }
 
         // Use parse_nested_meta for syn 2.0
-        if let Err(e) = attr.parse_nested_meta(|meta| {
+        attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("tag") {
                 // Parse tag = "value"
                 let value = meta.value()?;
@@ -132,9 +132,8 @@ pub fn extract_tag_info(attrs: &[syn::Attribute]) -> Result<Option<TaggedEnumInf
                 rename_all_lit = Some(lit);
             }
             Ok(())
-        }) {
-            eprintln!("Warning: Failed to parse serde attribute: {}", e);
-        }
+        })
+        .map_err(|e| e.to_compile_error())?;
     }
 
     // Validate rename_all value if present
@@ -229,11 +228,13 @@ pub fn apply_rename_all_at_compile_time(s: &str, rule: &str) -> String {
     }
 }
 
-/// Validate variant-level rename_all attribute and print warning if invalid.
-pub fn validate_variant_rename_all(variant: &syn::Variant) {
+/// Validate variant-level rename_all attribute.
+///
+/// Returns Err with compile error if the rename_all value is invalid.
+pub fn validate_variant_rename_all(variant: &syn::Variant) -> Result<(), TokenStream> {
     for attr in &variant.attrs {
         if attr.path().is_ident("serde") {
-            let _ = attr.parse_nested_meta(|meta| {
+            attr.parse_nested_meta(|meta| {
                 if meta.path.is_ident("rename_all") {
                     let value = meta.value()?;
                     let lit: syn::LitStr = value.parse()?;
@@ -248,16 +249,20 @@ pub fn validate_variant_rename_all(variant: &syn::Variant) {
                     ];
 
                     if !valid.contains(&rule.as_str()) {
-                        eprintln!(
-                            "Warning: Invalid variant-level rename_all value '{}' on variant '{}'. Valid values: {}",
-                            rule,
-                            variant.ident,
-                            valid.join(", ")
-                        );
+                        return Err(syn::Error::new_spanned(
+                            lit,
+                            format!(
+                                "Invalid rename_all value: '{}'. Valid values: {}",
+                                rule,
+                                valid.join(", ")
+                            ),
+                        ));
                     }
                 }
                 Ok(())
-            });
+            })
+            .map_err(|e| e.to_compile_error())?;
         }
     }
+    Ok(())
 }
