@@ -1,6 +1,13 @@
 //! Extraction strategies that find candidate JSON substrings in text.
 
+use once_cell::sync::Lazy;
+use regex::Regex;
+
 use crate::{error::Result, parser::Candidate};
+
+/// Static regex for extracting markdown code blocks.
+/// Compiled once and reused across all MarkdownExtractor instances.
+static CODE_BLOCK_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)```(\w*)\n(.*?)```").unwrap());
 
 /// Trait for strategies that extract candidate JSON substrings from text.
 ///
@@ -203,23 +210,13 @@ impl Extractor for HeuristicExtractor {
 /// Markdown code block extractor.
 ///
 /// Extracts content from markdown fenced code blocks (```).
-#[derive(Debug, Clone)]
-pub struct MarkdownExtractor {
-    code_block_regex: regex::Regex,
-}
-
-impl Default for MarkdownExtractor {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+#[derive(Debug, Clone, Default)]
+pub struct MarkdownExtractor;
 
 impl MarkdownExtractor {
     /// Creates a new markdown extractor.
     pub fn new() -> Self {
-        // Regex to match markdown code blocks with optional language tag
-        let code_block_regex = regex::Regex::new(r"(?s)```(\w*)\n(.*?)```").unwrap();
-        Self { code_block_regex }
+        Self
     }
 }
 
@@ -231,7 +228,7 @@ impl Extractor for MarkdownExtractor {
     fn extract(&self, input: &str) -> Result<Vec<Candidate>> {
         let mut candidates = Vec::new();
 
-        for cap in self.code_block_regex.captures_iter(input) {
+        for cap in CODE_BLOCK_REGEX.captures_iter(input) {
             let lang = cap.get(1).map(|m| m.as_str());
             let content = cap.get(2).map(|m| m.as_str()).unwrap_or("");
 

@@ -1,5 +1,6 @@
 //! Markdown extraction strategy.
 
+use once_cell::sync::Lazy;
 use regex::Regex;
 
 use super::ParsingStrategy;
@@ -7,6 +8,10 @@ use crate::{
     error::Result,
     value::{FlexValue, Source},
 };
+
+/// Static regex for extracting markdown code blocks.
+/// Compiled once and reused across all MarkdownStrategy instances.
+static CODE_BLOCK_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)```(\w*)\n(.*?)```").unwrap());
 
 /// Strategy that extracts JSON from markdown code blocks.
 ///
@@ -25,27 +30,14 @@ use crate::{
 /// let result = strategy.parse(input).unwrap();
 /// assert!(!result.is_empty());
 /// ```
-#[derive(Debug, Clone)]
-pub struct MarkdownStrategy {
-    /// Regex for extracting code blocks.
-    code_block_regex: Regex,
-}
-
-impl Default for MarkdownStrategy {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+#[derive(Debug, Clone, Default)]
+pub struct MarkdownStrategy;
 
 impl MarkdownStrategy {
     /// Creates a new markdown extraction strategy.
     #[inline]
     pub fn new() -> Self {
-        // Regex to match markdown code blocks with optional language tag
-        // Captures: (language tag, content)
-        let code_block_regex = Regex::new(r"(?s)```(\w*)\n(.*?)```").unwrap();
-
-        Self { code_block_regex }
+        Self
     }
 
     /// Removes trailing commas from JSON.
@@ -90,7 +82,7 @@ impl MarkdownStrategy {
     ///
     /// Returns tuples of (language_tag, content).
     fn extract_code_blocks<'a>(&self, input: &'a str) -> Vec<(Option<String>, &'a str)> {
-        self.code_block_regex
+        CODE_BLOCK_REGEX
             .captures_iter(input)
             .filter_map(|cap| {
                 let lang = cap.get(1).and_then(|m| {
