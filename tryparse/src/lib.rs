@@ -153,23 +153,42 @@ pub fn parse_with_candidates<T: DeserializeOwned>(input: &str) -> Result<(T, Vec
     // Clone each candidate individually instead of cloning entire vector upfront.
     // This is more efficient when early candidates succeed (common case).
     for i in 0..ranked.len() {
-        let mut deserializer = CoercingDeserializer::new(ranked[i].clone());
+        let candidate = &ranked[i];
+        let mut deserializer = CoercingDeserializer::new(candidate.clone());
         match T::deserialize(&mut deserializer) {
             Ok(value) => {
                 return Ok((value, ranked));
             }
             Err(e) => {
-                errors.push(e);
+                // Collect detailed error information for this candidate
+                let source_name = match &candidate.source {
+                    value::Source::Direct => "direct".to_string(),
+                    value::Source::Markdown { lang } => {
+                        format!("markdown({})", lang.as_deref().unwrap_or(""))
+                    }
+                    value::Source::Fixed { .. } => "fixed".to_string(),
+                    value::Source::MultiJson { index } => format!("multi_json[{}]", index),
+                    value::Source::MultiJsonArray => "multi_json_array".to_string(),
+                    value::Source::Heuristic { pattern } => format!("heuristic({})", pattern),
+                    value::Source::Yaml => "yaml".to_string(),
+                };
+                let preview: String = candidate.value.to_string().chars().take(100).collect();
+                let score = scoring::score_candidate(candidate);
+
+                errors.push(error::CandidateError {
+                    source: source_name,
+                    score,
+                    preview,
+                    error: e,
+                });
             }
         }
     }
 
-    // All candidates failed
-    Err(ParseError::DeserializeFailed(
-        errors.into_iter().next().unwrap_or_else(|| {
-            error::DeserializeError::Custom("unknown deserialization error".to_string())
-        }),
-    ))
+    // All candidates failed - return aggregated errors
+    Err(ParseError::AllCandidatesFailed(error::AllCandidatesError {
+        attempts: errors,
+    }))
 }
 
 /// Parses an LLM response using a custom parser.

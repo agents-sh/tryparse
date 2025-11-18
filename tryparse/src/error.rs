@@ -23,6 +23,13 @@ pub enum ParseError {
     #[error("Deserialization failed: {0}")]
     DeserializeFailed(#[from] DeserializeError),
 
+    /// All candidates failed to deserialize.
+    ///
+    /// This provides details about each candidate that was tried and why it failed,
+    /// which is more informative than just returning the first error.
+    #[error("All {0} candidates failed to deserialize")]
+    AllCandidatesFailed(AllCandidatesError),
+
     /// JSON parsing error from serde_json.
     #[error("JSON error: {0}")]
     JsonError(#[from] serde_json::Error),
@@ -30,6 +37,77 @@ pub enum ParseError {
     /// Configuration error.
     #[error("Invalid configuration: {0}")]
     InvalidConfig(String),
+}
+
+/// Details about all failed deserialization attempts.
+#[derive(Debug)]
+pub struct AllCandidatesError {
+    /// Each candidate that was tried and its error.
+    pub attempts: Vec<CandidateError>,
+}
+
+impl fmt::Display for AllCandidatesError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} candidates", self.attempts.len())
+    }
+}
+
+impl AllCandidatesError {
+    /// Returns the number of failed attempts.
+    pub fn len(&self) -> usize {
+        self.attempts.len()
+    }
+
+    /// Returns true if there are no attempts.
+    pub fn is_empty(&self) -> bool {
+        self.attempts.is_empty()
+    }
+
+    /// Returns the first error, if any.
+    pub fn first_error(&self) -> Option<&DeserializeError> {
+        self.attempts.first().map(|a| &a.error)
+    }
+
+    /// Returns detailed information about all attempts.
+    pub fn details(&self) -> String {
+        self.attempts
+            .iter()
+            .enumerate()
+            .map(|(i, attempt)| {
+                format!(
+                    "  {}. [{}] (score: {}): {}",
+                    i + 1,
+                    attempt.source,
+                    attempt.score,
+                    attempt.error
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+/// Details of a failed candidate deserialization attempt.
+#[derive(Debug)]
+pub struct CandidateError {
+    /// Source of the candidate (e.g., "direct", "markdown", "yaml").
+    pub source: String,
+    /// Score of the candidate (lower is better).
+    pub score: u32,
+    /// Preview of the candidate value (first 100 chars).
+    pub preview: String,
+    /// The deserialization error.
+    pub error: DeserializeError,
+}
+
+impl fmt::Display for CandidateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "[{}] (score: {}): {}",
+            self.source, self.score, self.error
+        )
+    }
 }
 
 /// Details of a failed parsing strategy attempt.
@@ -169,5 +247,71 @@ mod tests {
         let json_err = serde_json::from_str::<u32>("not a number").unwrap_err();
         let parse_err: ParseError = json_err.into();
         assert!(matches!(parse_err, ParseError::JsonError(_)));
+    }
+
+    #[test]
+    fn test_all_candidates_error() {
+        let err = AllCandidatesError {
+            attempts: vec![
+                CandidateError {
+                    source: "direct".to_string(),
+                    score: 0,
+                    preview: r#"{"foo": "bar"}"#.to_string(),
+                    error: DeserializeError::missing_field("required_field"),
+                },
+                CandidateError {
+                    source: "markdown(json)".to_string(),
+                    score: 5,
+                    preview: r#"{"baz": 42}"#.to_string(),
+                    error: DeserializeError::type_mismatch("string", "number"),
+                },
+            ],
+        };
+
+        assert_eq!(err.len(), 2);
+        assert!(!err.is_empty());
+
+        // Check first_error
+        let first = err.first_error().unwrap();
+        assert!(matches!(first, DeserializeError::MissingField { .. }));
+
+        // Check details
+        let details = err.details();
+        assert!(details.contains("direct"));
+        assert!(details.contains("markdown(json)"));
+        assert!(details.contains("required_field"));
+
+        // Check display
+        assert_eq!(err.to_string(), "2 candidates");
+    }
+
+    #[test]
+    fn test_candidate_error_display() {
+        let err = CandidateError {
+            source: "yaml".to_string(),
+            score: 10,
+            preview: "test".to_string(),
+            error: DeserializeError::Custom("test error".to_string()),
+        };
+
+        let display = err.to_string();
+        assert!(display.contains("yaml"));
+        assert!(display.contains("10"));
+        assert!(display.contains("test error"));
+    }
+
+    #[test]
+    fn test_parse_error_all_candidates_failed() {
+        let err = ParseError::AllCandidatesFailed(AllCandidatesError {
+            attempts: vec![CandidateError {
+                source: "direct".to_string(),
+                score: 0,
+                preview: "{}".to_string(),
+                error: DeserializeError::missing_field("name"),
+            }],
+        });
+
+        let display = err.to_string();
+        assert!(display.contains("1 candidates"));
     }
 }
