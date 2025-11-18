@@ -172,7 +172,19 @@ impl FieldMatcher {
 /// assert_eq!(to_camel_case("first_name"), "firstName");
 /// ```
 pub fn to_camel_case(s: &str) -> String {
-    let mut result = String::new();
+    // Fast path: if no underscores, check if already camelCase
+    if !s.contains('_') {
+        // If first char is lowercase and no changes needed, could return as-is
+        // but we need to ensure first char is lowercase
+        let mut chars = s.chars();
+        if let Some(first) = chars.next() {
+            if first.is_lowercase() {
+                return s.to_string();
+            }
+        }
+    }
+
+    let mut result = String::with_capacity(s.len());
     let mut capitalize_next = false;
     let mut first_char = true;
 
@@ -208,7 +220,16 @@ pub fn to_camel_case(s: &str) -> String {
 /// assert_eq!(to_snake_case("user.name"), "user_name");
 /// ```
 pub fn to_snake_case(s: &str) -> String {
-    let mut result = String::new();
+    // Fast path: if already snake_case (all lowercase, no dots/hyphens except underscores)
+    let needs_conversion = s
+        .chars()
+        .any(|ch| ch.is_uppercase() || ch == '-' || ch == '.');
+    if !needs_conversion {
+        return s.to_string();
+    }
+
+    // Pre-allocate with extra space for potential underscores
+    let mut result = String::with_capacity(s.len() + s.len() / 4);
 
     for ch in s.chars() {
         if ch.is_uppercase() {
@@ -282,6 +303,11 @@ pub fn apply_rename_all(s: &str, rule: &str) -> String {
 /// assert_eq!(remove_accents("København"), "Kobenhavn");
 /// ```
 pub fn remove_accents(s: &str) -> String {
+    // Fast path: if all ASCII, no accents to remove
+    if s.is_ascii() {
+        return s.to_string();
+    }
+
     // Handle ligatures separately since they're not combining marks
     let s = s
         .replace('ß', "ss")
@@ -311,6 +337,14 @@ pub fn remove_accents(s: &str) -> String {
 /// assert_eq!(strip_punctuation("user-id"), "user-id");
 /// ```
 pub fn strip_punctuation(s: &str) -> String {
+    // Fast path: if all chars are already valid, return as-is
+    let needs_stripping = s
+        .chars()
+        .any(|c| !c.is_alphanumeric() && c != '-' && c != '_');
+    if !needs_stripping {
+        return s.to_string();
+    }
+
     s.chars()
         .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
         .collect()
