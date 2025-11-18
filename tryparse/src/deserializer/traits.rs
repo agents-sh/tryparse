@@ -3,7 +3,9 @@
 //! This module defines the fundamental traits and context for deserializing
 //! LLM responses with sophisticated coercion logic ported from BAML.
 
+use std::cell::RefCell;
 use std::collections::HashSet;
+use std::rc::Rc;
 
 use crate::{constraints::ConstraintResults, error::Result, value::FlexValue};
 
@@ -11,28 +13,38 @@ use crate::{constraints::ConstraintResults, error::Result, value::FlexValue};
 /// Matches BAML's limit to prevent stack overflow.
 pub const DEFAULT_MAX_DEPTH: usize = 100;
 
+/// Shared state that doesn't need to be cloned when entering scopes.
+#[derive(Debug)]
+struct SharedState {
+    /// Track visited (type_name, value) pairs during strict matching (try_deserialize)
+    visited_for_strict: HashSet<(String, FlexValue)>,
+    /// Track visited (type_name, value) pairs during lenient matching (deserialize)
+    visited_for_lenient: HashSet<(String, FlexValue)>,
+    /// Constraint validation results
+    constraints: ConstraintResults,
+    /// Transformations applied during deserialization
+    transformations: Vec<crate::value::Transformation>,
+}
+
 /// Context for deserialization with circular reference tracking.
 ///
 /// This context maintains state during deserialization to detect and prevent
 /// infinite loops when dealing with recursive types.
 ///
 /// Uses BAML's approach: create new contexts when entering types rather than guards.
+///
+/// Performance optimization: Shared state (visited sets, transformations) uses
+/// `Rc<RefCell<>>` to avoid expensive cloning on every scope entry.
 #[derive(Debug, Clone)]
 pub struct CoercionContext {
-    /// Track visited (type_name, value) pairs during strict matching (try_deserialize)
-    visited_for_strict: HashSet<(String, FlexValue)>,
-    /// Track visited (type_name, value) pairs during lenient matching (deserialize)
-    visited_for_lenient: HashSet<(String, FlexValue)>,
-    /// Current nesting depth
+    /// Shared mutable state (visited sets, constraints, transformations)
+    shared: Rc<RefCell<SharedState>>,
+    /// Current nesting depth (cloned per scope)
     depth: usize,
     /// Maximum allowed depth
     max_depth: usize,
     /// Scope trail for error messages (e.g., ["root", "user", "address", "street"])
     scope: Vec<String>,
-    /// Constraint validation results
-    constraints: ConstraintResults,
-    /// Transformations applied during deserialization
-    transformations: Vec<crate::value::Transformation>,
 }
 
 impl CoercionContext {
@@ -41,36 +53,46 @@ impl CoercionContext {
     /// Maximum depth is set to `DEFAULT_MAX_DEPTH`, matching BAML's limit.
     pub fn new() -> Self {
         Self {
-            visited_for_strict: HashSet::new(),
-            visited_for_lenient: HashSet::new(),
+            shared: Rc::new(RefCell::new(SharedState {
+                visited_for_strict: HashSet::new(),
+                visited_for_lenient: HashSet::new(),
+                constraints: ConstraintResults::new(),
+                transformations: Vec::new(),
+            })),
             depth: 0,
             max_depth: DEFAULT_MAX_DEPTH,
             scope: vec!["<root>".to_string()],
-            constraints: ConstraintResults::new(),
-            transformations: Vec::new(),
         }
     }
 
     /// Creates a context with a custom maximum depth.
     pub fn with_max_depth(max_depth: usize) -> Self {
         Self {
-            visited_for_strict: HashSet::new(),
-            visited_for_lenient: HashSet::new(),
+            shared: Rc::new(RefCell::new(SharedState {
+                visited_for_strict: HashSet::new(),
+                visited_for_lenient: HashSet::new(),
+                constraints: ConstraintResults::new(),
+                transformations: Vec::new(),
+            })),
             depth: 0,
             max_depth,
             scope: vec!["<root>".to_string()],
-            constraints: ConstraintResults::new(),
-            transformations: Vec::new(),
         }
     }
 
     /// Enters a new scope (e.g., entering a field).
     ///
     /// Returns a new context with the updated scope trail.
+    /// This is cheap - only clones the scope Vec and Rc pointer.
     pub fn enter_scope(&self, name: &str) -> Self {
-        let mut new_ctx = self.clone();
-        new_ctx.scope.push(name.to_string());
-        new_ctx
+        let mut new_scope = self.scope.clone();
+        new_scope.push(name.to_string());
+        Self {
+            shared: Rc::clone(&self.shared),
+            depth: self.depth,
+            max_depth: self.max_depth,
+            scope: new_scope,
+        }
     }
 
     /// Returns the current scope as a dotted path.
@@ -89,43 +111,52 @@ impl CoercionContext {
     ///
     /// This allows tracking both @assert and @check constraints during deserialization.
     pub fn add_constraint(&mut self, result: crate::constraints::ConstraintResult) {
-        self.constraints.add(result);
+        self.shared.borrow_mut().constraints.add(result);
     }
 
     /// Returns all constraint validation results.
-    pub fn constraints(&self) -> &crate::constraints::ConstraintResults {
-        &self.constraints
+    pub fn constraints(&self) -> ConstraintResults {
+        self.shared.borrow().constraints.clone()
     }
 
     /// Returns true if all assert-level constraints passed.
     ///
     /// Check-level constraints do not affect this result.
     pub fn all_asserts_passed(&self) -> bool {
-        self.constraints.all_asserts_passed()
+        self.shared.borrow().constraints.all_asserts_passed()
     }
 
     /// Returns all failing assert-level constraints.
-    pub fn failing_asserts(&self) -> Vec<&crate::constraints::ConstraintResult> {
-        self.constraints.failing_asserts()
+    pub fn failing_asserts(&self) -> Vec<crate::constraints::ConstraintResult> {
+        self.shared
+            .borrow()
+            .constraints
+            .failing_asserts()
+            .into_iter()
+            .cloned()
+            .collect()
     }
 
     /// Adds a transformation that occurred during deserialization.
     ///
     /// This allows tracking what modifications were made to the input data.
     pub fn add_transformation(&mut self, transformation: crate::value::Transformation) {
-        self.transformations.push(transformation);
+        self.shared
+            .borrow_mut()
+            .transformations
+            .push(transformation);
     }
 
     /// Returns all transformations applied during deserialization.
-    pub fn transformations(&self) -> &[crate::value::Transformation] {
-        &self.transformations
+    pub fn transformations(&self) -> Vec<crate::value::Transformation> {
+        self.shared.borrow().transformations.clone()
     }
 
     /// Takes all transformations, leaving an empty vector.
     ///
     /// This is useful for moving transformations into a FlexValue after deserialization.
     pub fn take_transformations(&mut self) -> Vec<crate::value::Transformation> {
-        std::mem::take(&mut self.transformations)
+        std::mem::take(&mut self.shared.borrow_mut().transformations)
     }
 
     /// Checks if we can enter a type for strict matching.
@@ -143,7 +174,7 @@ impl CoercionContext {
 
         let pair = (type_name.to_string(), value.clone());
 
-        if self.visited_for_strict.contains(&pair) {
+        if self.shared.borrow().visited_for_strict.contains(&pair) {
             return Err(crate::error::ParseError::DeserializeFailed(
                 crate::error::DeserializeError::CircularReference {
                     type_name: type_name.to_string(),
@@ -157,13 +188,19 @@ impl CoercionContext {
     /// Creates a new context with the given type/value pair marked as visited (strict mode).
     ///
     /// This matches BAML's approach of creating a new context instead of mutating.
+    /// The visited set is shared, so marking as visited affects all contexts sharing this state.
     pub fn with_visited_strict(&self, type_name: &str, value: &FlexValue) -> Self {
-        let mut new_ctx = self.clone();
-        new_ctx
+        self.shared
+            .borrow_mut()
             .visited_for_strict
             .insert((type_name.to_string(), value.clone()));
-        new_ctx.depth += 1;
-        new_ctx
+
+        Self {
+            shared: Rc::clone(&self.shared),
+            depth: self.depth + 1,
+            max_depth: self.max_depth,
+            scope: self.scope.clone(),
+        }
     }
 
     /// Checks if we can enter a type for lenient matching.
@@ -181,7 +218,7 @@ impl CoercionContext {
 
         let pair = (type_name.to_string(), value.clone());
 
-        if self.visited_for_lenient.contains(&pair) {
+        if self.shared.borrow().visited_for_lenient.contains(&pair) {
             return Err(crate::error::ParseError::DeserializeFailed(
                 crate::error::DeserializeError::CircularReference {
                     type_name: type_name.to_string(),
@@ -195,13 +232,19 @@ impl CoercionContext {
     /// Creates a new context with the given type/value pair marked as visited (lenient mode).
     ///
     /// This matches BAML's approach of creating a new context instead of mutating.
+    /// The visited set is shared, so marking as visited affects all contexts sharing this state.
     pub fn with_visited_lenient(&self, type_name: &str, value: &FlexValue) -> Self {
-        let mut new_ctx = self.clone();
-        new_ctx
+        self.shared
+            .borrow_mut()
             .visited_for_lenient
             .insert((type_name.to_string(), value.clone()));
-        new_ctx.depth += 1;
-        new_ctx
+
+        Self {
+            shared: Rc::clone(&self.shared),
+            depth: self.depth + 1,
+            max_depth: self.max_depth,
+            scope: self.scope.clone(),
+        }
     }
 
     /// Returns the current depth.

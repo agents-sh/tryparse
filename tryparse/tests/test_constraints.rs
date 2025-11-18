@@ -155,7 +155,8 @@ fn test_constraint_check_does_not_fail_deserialization() {
     assert!(ctx.all_asserts_passed());
 
     // Can inspect check results
-    let checks = ctx.constraints().checks();
+    let constraints = ctx.constraints();
+    let checks = constraints.checks();
     assert_eq!(checks.len(), 1);
     assert!(!checks[0].passed());
     assert_eq!(checks[0].constraint.name, "name_not_empty");
