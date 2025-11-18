@@ -150,8 +150,10 @@ pub fn parse_with_candidates<T: DeserializeOwned>(input: &str) -> Result<(T, Vec
     let mut errors = Vec::new();
     let ranked = scoring::rank_candidates(candidates);
 
-    for candidate in ranked.clone() {
-        let mut deserializer = CoercingDeserializer::new(candidate);
+    // Clone each candidate individually instead of cloning entire vector upfront.
+    // This is more efficient when early candidates succeed (common case).
+    for i in 0..ranked.len() {
+        let mut deserializer = CoercingDeserializer::new(ranked[i].clone());
         match T::deserialize(&mut deserializer) {
             Ok(value) => {
                 return Ok((value, ranked));
