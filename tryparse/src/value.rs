@@ -33,9 +33,59 @@ pub struct FlexValue {
 // Implement Hash and Eq based on the value only (for circular detection)
 impl Hash for FlexValue {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        // Hash the JSON value by converting to string
-        // This is not perfect but works for circular detection
-        self.value.to_string().hash(state);
+        // Hash the JSON value structurally without string conversion
+        hash_json_value(&self.value, state);
+    }
+}
+
+/// Hash a JSON value recursively without string conversion.
+///
+/// This is more efficient than converting to string for large values.
+fn hash_json_value<H: Hasher>(value: &Value, state: &mut H) {
+    // Hash the discriminant first to distinguish different types
+    std::mem::discriminant(value).hash(state);
+
+    match value {
+        Value::Null => {
+            // Discriminant already hashed
+        }
+        Value::Bool(b) => {
+            b.hash(state);
+        }
+        Value::Number(n) => {
+            // Convert to canonical representation for hashing
+            if let Some(i) = n.as_i64() {
+                0u8.hash(state); // Mark as integer
+                i.hash(state);
+            } else if let Some(u) = n.as_u64() {
+                1u8.hash(state); // Mark as unsigned
+                u.hash(state);
+            } else if let Some(f) = n.as_f64() {
+                2u8.hash(state); // Mark as float
+                                 // Convert float to bits for hashing
+                f.to_bits().hash(state);
+            }
+        }
+        Value::String(s) => {
+            s.hash(state);
+        }
+        Value::Array(arr) => {
+            arr.len().hash(state);
+            for item in arr {
+                hash_json_value(item, state);
+            }
+        }
+        Value::Object(obj) => {
+            obj.len().hash(state);
+            // Hash entries in sorted order for consistency
+            // (serde_json::Map preserves insertion order, but we want value equality)
+            let mut keys: Vec<_> = obj.keys().collect();
+            keys.sort();
+            for key in keys {
+                key.hash(state);
+                hash_json_value(&obj[key], state);
+            }
+        }
     }
 }
 
@@ -635,6 +685,8 @@ impl Transformation {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use serde_json::json;
 
     use super::*;
@@ -644,6 +696,129 @@ mod tests {
         let value = FlexValue::new(json!({"test": 1}), Source::Direct);
         assert_eq!(value.confidence(), 1.0);
         assert!(value.transformations().is_empty());
+    }
+
+    #[test]
+    fn test_flex_value_hash_consistency() {
+        use std::hash::{DefaultHasher, Hasher};
+
+        // Helper to compute hash
+        fn compute_hash(value: &FlexValue) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            value.hash(&mut hasher);
+            hasher.finish()
+        }
+
+        // Equal values should have equal hashes
+        let v1 = FlexValue::new(json!({"a": 1, "b": 2}), Source::Direct);
+        let v2 = FlexValue::new(json!({"a": 1, "b": 2}), Source::Direct);
+        assert_eq!(compute_hash(&v1), compute_hash(&v2));
+
+        // Different values should have different hashes
+        let v3 = FlexValue::new(json!({"a": 1, "b": 3}), Source::Direct);
+        assert_ne!(compute_hash(&v1), compute_hash(&v3));
+
+        // Different types should have different hashes
+        let v4 = FlexValue::new(json!([1, 2]), Source::Direct);
+        assert_ne!(compute_hash(&v1), compute_hash(&v4));
+    }
+
+    #[test]
+    fn test_flex_value_hash_with_hashset() {
+        let mut set = HashSet::new();
+
+        let v1 = FlexValue::new(json!({"name": "test", "value": 42}), Source::Direct);
+        let v2 = FlexValue::new(json!({"name": "test", "value": 42}), Source::Direct);
+        let v3 = FlexValue::new(json!({"name": "other", "value": 42}), Source::Direct);
+
+        // Insert first value
+        assert!(set.insert(v1.clone()));
+
+        // Inserting equal value should return false (already exists)
+        assert!(!set.insert(v2));
+
+        // Inserting different value should succeed
+        assert!(set.insert(v3));
+
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn test_flex_value_hash_nested_objects() {
+        use std::hash::{DefaultHasher, Hasher};
+
+        fn compute_hash(value: &FlexValue) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            value.hash(&mut hasher);
+            hasher.finish()
+        }
+
+        // Deeply nested objects should hash consistently
+        let nested = json!({
+            "level1": {
+                "level2": {
+                    "level3": [1, 2, 3]
+                }
+            }
+        });
+        let v1 = FlexValue::new(nested.clone(), Source::Direct);
+        let v2 = FlexValue::new(nested, Source::Direct);
+        assert_eq!(compute_hash(&v1), compute_hash(&v2));
+    }
+
+    #[test]
+    fn test_flex_value_hash_floats() {
+        use std::hash::{DefaultHasher, Hasher};
+
+        fn compute_hash(value: &FlexValue) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            value.hash(&mut hasher);
+            hasher.finish()
+        }
+
+        // Floats should hash by their bit representation
+        let v1 = FlexValue::new(json!(1.234), Source::Direct);
+        let v2 = FlexValue::new(json!(1.234), Source::Direct);
+        let v3 = FlexValue::new(json!(1.235), Source::Direct);
+
+        assert_eq!(compute_hash(&v1), compute_hash(&v2));
+        assert_ne!(compute_hash(&v1), compute_hash(&v3));
+    }
+
+    #[test]
+    fn test_flex_value_hash_all_types() {
+        use std::hash::{DefaultHasher, Hasher};
+
+        fn compute_hash(value: &FlexValue) -> u64 {
+            let mut hasher = DefaultHasher::new();
+            value.hash(&mut hasher);
+            hasher.finish()
+        }
+
+        // Test all JSON types produce different hashes
+        let null = FlexValue::new(json!(null), Source::Direct);
+        let bool_val = FlexValue::new(json!(true), Source::Direct);
+        let num = FlexValue::new(json!(42), Source::Direct);
+        let string = FlexValue::new(json!("test"), Source::Direct);
+        let array = FlexValue::new(json!([1, 2]), Source::Direct);
+        let object = FlexValue::new(json!({"a": 1}), Source::Direct);
+
+        let hashes = [
+            compute_hash(&null),
+            compute_hash(&bool_val),
+            compute_hash(&num),
+            compute_hash(&string),
+            compute_hash(&array),
+            compute_hash(&object),
+        ];
+
+        // All hashes should be unique
+        let unique: HashSet<_> = hashes.iter().collect();
+        assert_eq!(
+            unique.len(),
+            hashes.len(),
+            "All types should have unique hashes"
+        );
     }
 
     #[test]
