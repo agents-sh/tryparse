@@ -193,6 +193,7 @@ fn test_constraint_levels() {
 fn test_multiple_failing_asserts() {
     // Example with multiple assert constraints
     #[derive(Debug)]
+    #[allow(dead_code)] // Fields are deserialized but not directly accessed in test
     struct Product {
         name: String,
         price: f64,

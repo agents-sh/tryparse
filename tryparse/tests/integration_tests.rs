@@ -36,6 +36,7 @@ struct NestedData {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)] // Fields are deserialized but not directly accessed in test
 enum Status {
     Active,
     Pending,

@@ -1354,6 +1354,7 @@ fn test_negotiation_field_fuzzy_match_works() {
 fn test_negotiation_compare_with_regular_struct() {
     // Compare: Regular struct WITH fuzzy field matching
     #[derive(Debug, LlmDeserialize)]
+    #[allow(dead_code)] // Fields are deserialized but not directly accessed in test
     struct RegularStruct {
         skill_id: String,
         reasoning: String,

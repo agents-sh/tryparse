@@ -108,6 +108,7 @@ fn test_implied_key_with_llm_deserialize() {
 #[test]
 fn test_multi_field_struct_rejects_non_object() {
     #[derive(Deserialize, Debug)]
+    #[allow(dead_code)] // Fields are deserialized but not directly accessed in test
     struct TwoFields {
         name: String,
         age: i64,
