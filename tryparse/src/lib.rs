@@ -74,10 +74,29 @@ pub fn __ensure_primitives_linked() {
     deserializer::primitives::__ensure_linked();
 }
 
+use std::time::{Duration, Instant};
+
 use deserializer::{CoercingDeserializer, CoercionContext, LlmDeserialize};
 use error::{ParseError, Result};
 use parser::FlexibleParser;
 use serde::de::DeserializeOwned;
+
+/// Metadata about a parsing operation.
+///
+/// This provides insight into which strategy succeeded and how long parsing took.
+#[derive(Debug, Clone)]
+pub struct ParseMetadata {
+    /// Which parsing strategy produced the successful candidate.
+    pub strategy_used: String,
+    /// Total parse duration.
+    pub duration: Duration,
+    /// Number of candidates evaluated before finding a match.
+    pub candidates_evaluated: usize,
+    /// Total number of candidates produced by all strategies.
+    pub total_candidates: usize,
+    /// Score of the winning candidate (lower is better).
+    pub winning_score: u32,
+}
 use value::FlexValue;
 
 /// Parses an LLM response into a strongly-typed Rust struct.
@@ -188,6 +207,112 @@ pub fn parse_with_candidates<T: DeserializeOwned>(input: &str) -> Result<(T, Vec
     // All candidates failed - return aggregated errors
     Err(ParseError::AllCandidatesFailed(error::AllCandidatesError {
         attempts: errors,
+    }))
+}
+
+/// Parses an LLM response and returns metadata about the parsing process.
+///
+/// This variant provides visibility into which strategy was used, timing information,
+/// and candidate evaluation details for debugging and observability.
+///
+/// # Examples
+///
+/// ```
+/// use tryparse::parse_with_metadata;
+/// use serde::Deserialize;
+///
+/// #[derive(Deserialize)]
+/// struct Data {
+///     value: i32,
+/// }
+///
+/// let response = r#"{"value": 42}"#;
+/// let (data, metadata) = parse_with_metadata::<Data>(response).unwrap();
+///
+/// println!("Strategy used: {}", metadata.strategy_used);
+/// println!("Duration: {:?}", metadata.duration);
+/// println!("Candidates evaluated: {}", metadata.candidates_evaluated);
+/// ```
+///
+/// # Errors
+///
+/// Returns `ParseError::NoCandidates` if no valid JSON could be extracted.
+/// Returns `ParseError::AllCandidatesFailed` if deserialization fails for all candidates.
+pub fn parse_with_metadata<T: DeserializeOwned>(input: &str) -> Result<(T, ParseMetadata)> {
+    let start = Instant::now();
+
+    let parser = FlexibleParser::new();
+    let candidates = parser.parse(input)?;
+
+    if candidates.is_empty() {
+        return Err(ParseError::NoCandidates);
+    }
+
+    let total_candidates = candidates.len();
+    let ranked = scoring::rank_candidates(candidates);
+
+    let mut errors = Vec::new();
+    let mut candidates_evaluated = 0;
+
+    for i in 0..ranked.len() {
+        candidates_evaluated += 1;
+        let candidate = &ranked[i];
+        let mut deserializer = CoercingDeserializer::new(candidate.clone());
+        match T::deserialize(&mut deserializer) {
+            Ok(value) => {
+                let source_name = match &candidate.source {
+                    value::Source::Direct => "direct".to_string(),
+                    value::Source::Markdown { lang } => {
+                        format!("markdown({})", lang.as_deref().unwrap_or(""))
+                    }
+                    value::Source::Fixed { .. } => "fixed".to_string(),
+                    value::Source::MultiJson { index } => format!("multi_json[{}]", index),
+                    value::Source::MultiJsonArray => "multi_json_array".to_string(),
+                    value::Source::Heuristic { pattern } => format!("heuristic({})", pattern),
+                    value::Source::Yaml => "yaml".to_string(),
+                };
+
+                let metadata = ParseMetadata {
+                    strategy_used: source_name,
+                    duration: start.elapsed(),
+                    candidates_evaluated,
+                    total_candidates,
+                    winning_score: scoring::score_candidate(candidate),
+                };
+
+                return Ok((value, metadata));
+            }
+            Err(e) => {
+                errors.push(e);
+            }
+        }
+    }
+
+    // All candidates failed
+    Err(ParseError::AllCandidatesFailed(error::AllCandidatesError {
+        attempts: ranked
+            .iter()
+            .zip(errors)
+            .map(|(candidate, error)| {
+                let source_name = match &candidate.source {
+                    value::Source::Direct => "direct".to_string(),
+                    value::Source::Markdown { lang } => {
+                        format!("markdown({})", lang.as_deref().unwrap_or(""))
+                    }
+                    value::Source::Fixed { .. } => "fixed".to_string(),
+                    value::Source::MultiJson { index } => format!("multi_json[{}]", index),
+                    value::Source::MultiJsonArray => "multi_json_array".to_string(),
+                    value::Source::Heuristic { pattern } => format!("heuristic({})", pattern),
+                    value::Source::Yaml => "yaml".to_string(),
+                };
+                error::CandidateError {
+                    source: source_name,
+                    score: scoring::score_candidate(candidate),
+                    preview: candidate.value.to_string().chars().take(100).collect(),
+                    error,
+                }
+            })
+            .collect(),
     }))
 }
 
