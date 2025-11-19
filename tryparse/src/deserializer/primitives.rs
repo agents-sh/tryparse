@@ -110,6 +110,200 @@ impl LlmDeserialize for i64 {
 }
 
 // ================================================================================================
+// Other Signed Integer Implementations (delegate to i64)
+// ================================================================================================
+
+macro_rules! impl_signed_int {
+    ($($ty:ty),*) => {
+        $(
+            impl LlmDeserialize for $ty {
+                fn try_deserialize(value: &FlexValue, ctx: &mut CoercionContext) -> Option<Self> {
+                    let n = i64::try_deserialize(value, ctx)?;
+                    <$ty>::try_from(n).ok()
+                }
+
+                fn deserialize(value: &FlexValue, ctx: &mut CoercionContext) -> Result<Self> {
+                    let n = i64::deserialize(value, ctx)?;
+                    <$ty>::try_from(n).map_err(|_| {
+                        ParseError::DeserializeFailed(DeserializeError::TypeMismatch {
+                            expected: stringify!($ty),
+                            found: format!("integer {} out of range", n),
+                        })
+                    })
+                }
+            }
+        )*
+    };
+}
+
+impl_signed_int!(i8, i16, i32, i128, isize);
+
+// ================================================================================================
+// Unsigned Integer Implementations (delegate to i64/u64)
+// ================================================================================================
+
+macro_rules! impl_unsigned_int {
+    ($($ty:ty),*) => {
+        $(
+            impl LlmDeserialize for $ty {
+                fn try_deserialize(value: &FlexValue, _ctx: &mut CoercionContext) -> Option<Self> {
+                    // Try direct u64 first for larger unsigned values
+                    match &value.value {
+                        Value::Number(n) => {
+                            if let Some(u) = n.as_u64() {
+                                return <$ty>::try_from(u).ok();
+                            }
+                            if let Some(i) = n.as_i64() {
+                                return <$ty>::try_from(i).ok();
+                            }
+                            None
+                        }
+                        _ => None,
+                    }
+                }
+
+                fn deserialize(value: &FlexValue, ctx: &mut CoercionContext) -> Result<Self> {
+                    // First try to get as i64 (handles string coercion, etc.)
+                    let n = i64::deserialize(value, ctx)?;
+
+                    // Try to convert to target type
+                    <$ty>::try_from(n).map_err(|_| {
+                        ParseError::DeserializeFailed(DeserializeError::TypeMismatch {
+                            expected: stringify!($ty),
+                            found: format!("integer {} out of range (must be 0..={})", n, <$ty>::MAX),
+                        })
+                    })
+                }
+            }
+        )*
+    };
+}
+
+impl_unsigned_int!(u8, u16, u32, usize);
+
+// Special case for u64 - can hold values larger than i64
+impl LlmDeserialize for u64 {
+    fn try_deserialize(value: &FlexValue, _ctx: &mut CoercionContext) -> Option<Self> {
+        match &value.value {
+            Value::Number(n) => n.as_u64().or_else(|| n.as_i64().and_then(|i| u64::try_from(i).ok())),
+            _ => None,
+        }
+    }
+
+    fn deserialize(value: &FlexValue, ctx: &mut CoercionContext) -> Result<Self> {
+        match &value.value {
+            // Direct number
+            Value::Number(n) => {
+                if let Some(u) = n.as_u64() {
+                    Ok(u)
+                } else if let Some(i) = n.as_i64() {
+                    u64::try_from(i).map_err(|_| {
+                        ParseError::DeserializeFailed(DeserializeError::TypeMismatch {
+                            expected: "u64",
+                            found: format!("negative integer {}", i),
+                        })
+                    })
+                } else if let Some(f) = n.as_f64() {
+                    if f < 0.0 {
+                        return Err(ParseError::DeserializeFailed(
+                            DeserializeError::TypeMismatch {
+                                expected: "u64",
+                                found: format!("negative float {}", f),
+                            },
+                        ));
+                    }
+                    Ok(f.round() as u64)
+                } else {
+                    Err(ParseError::DeserializeFailed(
+                        DeserializeError::TypeMismatch {
+                            expected: "u64",
+                            found: "invalid number".to_string(),
+                        },
+                    ))
+                }
+            }
+
+            // String to u64
+            Value::String(s) => {
+                let s = s.trim().trim_end_matches(',');
+
+                // Try direct parsing
+                if let Ok(n) = s.parse::<u64>() {
+                    Ok(n)
+                } else if let Ok(n) = s.parse::<i64>() {
+                    u64::try_from(n).map_err(|_| {
+                        ParseError::DeserializeFailed(DeserializeError::TypeMismatch {
+                            expected: "u64",
+                            found: format!("negative integer {}", n),
+                        })
+                    })
+                } else if let Ok(f) = s.parse::<f64>() {
+                    if f < 0.0 {
+                        return Err(ParseError::DeserializeFailed(
+                            DeserializeError::TypeMismatch {
+                                expected: "u64",
+                                found: format!("negative float {}", f),
+                            },
+                        ));
+                    }
+                    Ok(f.round() as u64)
+                } else if let Some(f) = parse_comma_separated_number(s) {
+                    if f < 0.0 {
+                        return Err(ParseError::DeserializeFailed(
+                            DeserializeError::TypeMismatch {
+                                expected: "u64",
+                                found: format!("negative number {}", f),
+                            },
+                        ));
+                    }
+                    Ok(f.round() as u64)
+                } else {
+                    Err(ParseError::DeserializeFailed(
+                        DeserializeError::TypeMismatch {
+                            expected: "u64",
+                            found: format!("string: {}", s),
+                        },
+                    ))
+                }
+            }
+
+            // Array unwrapping
+            Value::Array(items) if items.len() == 1 => {
+                let inner = FlexValue::new(items[0].clone(), value.source.clone());
+                Self::deserialize(&inner, ctx)
+            }
+
+            _ => Err(ParseError::DeserializeFailed(
+                DeserializeError::TypeMismatch {
+                    expected: "u64",
+                    found: value_type_name(&value.value),
+                },
+            )),
+        }
+    }
+}
+
+// Special case for u128 - can hold values larger than u64
+impl LlmDeserialize for u128 {
+    fn try_deserialize(value: &FlexValue, _ctx: &mut CoercionContext) -> Option<Self> {
+        match &value.value {
+            Value::Number(n) => n.as_u64().map(u128::from).or_else(|| {
+                n.as_i64()
+                    .and_then(|i| u128::try_from(i).ok())
+            }),
+            _ => None,
+        }
+    }
+
+    fn deserialize(value: &FlexValue, ctx: &mut CoercionContext) -> Result<Self> {
+        // For u128, we delegate to u64 for most cases since JSON numbers
+        // are typically within u64 range
+        let n = u64::deserialize(value, ctx)?;
+        Ok(u128::from(n))
+    }
+}
+
+// ================================================================================================
 // f64 Implementation
 // ================================================================================================
 
@@ -194,6 +388,21 @@ impl LlmDeserialize for f64 {
                 },
             )),
         }
+    }
+}
+
+// ================================================================================================
+// f32 Implementation (delegates to f64)
+// ================================================================================================
+
+impl LlmDeserialize for f32 {
+    fn try_deserialize(value: &FlexValue, ctx: &mut CoercionContext) -> Option<Self> {
+        f64::try_deserialize(value, ctx).map(|f| f as f32)
+    }
+
+    fn deserialize(value: &FlexValue, ctx: &mut CoercionContext) -> Result<Self> {
+        let f = f64::deserialize(value, ctx)?;
+        Ok(f as f32)
     }
 }
 
@@ -760,5 +969,155 @@ mod tests {
         assert_eq!(map.len(), 2);
         assert_eq!(map.get("one"), Some(&1));
         assert_eq!(map.get("three"), Some(&3));
+    }
+
+    // ===== Additional Integer Type Tests =====
+
+    #[test]
+    fn test_i32_direct() {
+        let mut ctx = CoercionContext::new();
+        let value = FlexValue::new(json!(42), Source::Direct);
+        assert_eq!(i32::deserialize(&value, &mut ctx).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_i32_from_string() {
+        let mut ctx = CoercionContext::new();
+        let value = FlexValue::new(json!("42"), Source::Direct);
+        assert_eq!(i32::deserialize(&value, &mut ctx).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_i32_overflow() {
+        let mut ctx = CoercionContext::new();
+        let value = FlexValue::new(json!(i64::MAX), Source::Direct);
+        assert!(i32::deserialize(&value, &mut ctx).is_err());
+    }
+
+    #[test]
+    fn test_u32_direct() {
+        let mut ctx = CoercionContext::new();
+        let value = FlexValue::new(json!(42), Source::Direct);
+        assert_eq!(u32::deserialize(&value, &mut ctx).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_u32_from_string() {
+        let mut ctx = CoercionContext::new();
+        let value = FlexValue::new(json!("42"), Source::Direct);
+        assert_eq!(u32::deserialize(&value, &mut ctx).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_u32_negative_fails() {
+        let mut ctx = CoercionContext::new();
+        let value = FlexValue::new(json!(-1), Source::Direct);
+        assert!(u32::deserialize(&value, &mut ctx).is_err());
+    }
+
+    #[test]
+    fn test_u64_direct() {
+        let mut ctx = CoercionContext::new();
+        let value = FlexValue::new(json!(42), Source::Direct);
+        assert_eq!(u64::deserialize(&value, &mut ctx).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_u64_large_value() {
+        let mut ctx = CoercionContext::new();
+        // Value larger than i64::MAX
+        let large = u64::MAX / 2;
+        let value = FlexValue::new(json!(large), Source::Direct);
+        assert_eq!(u64::deserialize(&value, &mut ctx).unwrap(), large);
+    }
+
+    #[test]
+    fn test_u64_from_string() {
+        let mut ctx = CoercionContext::new();
+        let value = FlexValue::new(json!("12345"), Source::Direct);
+        assert_eq!(u64::deserialize(&value, &mut ctx).unwrap(), 12345);
+    }
+
+    #[test]
+    fn test_u64_negative_fails() {
+        let mut ctx = CoercionContext::new();
+        let value = FlexValue::new(json!(-1), Source::Direct);
+        assert!(u64::deserialize(&value, &mut ctx).is_err());
+    }
+
+    #[test]
+    fn test_usize_direct() {
+        let mut ctx = CoercionContext::new();
+        let value = FlexValue::new(json!(100), Source::Direct);
+        assert_eq!(usize::deserialize(&value, &mut ctx).unwrap(), 100);
+    }
+
+    #[test]
+    fn test_usize_from_string() {
+        let mut ctx = CoercionContext::new();
+        let value = FlexValue::new(json!("100"), Source::Direct);
+        assert_eq!(usize::deserialize(&value, &mut ctx).unwrap(), 100);
+    }
+
+    #[test]
+    fn test_i8_range() {
+        let mut ctx = CoercionContext::new();
+
+        // Valid range
+        let value = FlexValue::new(json!(127), Source::Direct);
+        assert_eq!(i8::deserialize(&value, &mut ctx).unwrap(), 127);
+
+        let value = FlexValue::new(json!(-128), Source::Direct);
+        assert_eq!(i8::deserialize(&value, &mut ctx).unwrap(), -128);
+
+        // Out of range
+        let value = FlexValue::new(json!(128), Source::Direct);
+        assert!(i8::deserialize(&value, &mut ctx).is_err());
+    }
+
+    #[test]
+    fn test_u8_range() {
+        let mut ctx = CoercionContext::new();
+
+        // Valid range
+        let value = FlexValue::new(json!(255), Source::Direct);
+        assert_eq!(u8::deserialize(&value, &mut ctx).unwrap(), 255);
+
+        let value = FlexValue::new(json!(0), Source::Direct);
+        assert_eq!(u8::deserialize(&value, &mut ctx).unwrap(), 0);
+
+        // Out of range
+        let value = FlexValue::new(json!(256), Source::Direct);
+        assert!(u8::deserialize(&value, &mut ctx).is_err());
+    }
+
+    #[test]
+    fn test_f32_direct() {
+        let mut ctx = CoercionContext::new();
+        let value = FlexValue::new(json!(3.125), Source::Direct);
+        let result = f32::deserialize(&value, &mut ctx).unwrap();
+        assert!((result - 3.125).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_f32_from_string() {
+        let mut ctx = CoercionContext::new();
+        let value = FlexValue::new(json!("3.125"), Source::Direct);
+        let result = f32::deserialize(&value, &mut ctx).unwrap();
+        assert!((result - 3.125).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_i128_direct() {
+        let mut ctx = CoercionContext::new();
+        let value = FlexValue::new(json!(42), Source::Direct);
+        assert_eq!(i128::deserialize(&value, &mut ctx).unwrap(), 42);
+    }
+
+    #[test]
+    fn test_u128_direct() {
+        let mut ctx = CoercionContext::new();
+        let value = FlexValue::new(json!(42), Source::Direct);
+        assert_eq!(u128::deserialize(&value, &mut ctx).unwrap(), 42);
     }
 }
