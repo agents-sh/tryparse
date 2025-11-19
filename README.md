@@ -94,6 +94,26 @@ enum Status {
 }
 ```
 
+**Internally-tagged enum fuzzy matching** - Tag values match fuzzily:
+
+```rust
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, LlmDeserialize, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum Decision {
+    StartTask { skill_id: String, reasoning: String },
+    AskClarification { message: String },
+}
+
+// All of these work with fuzzy tag matching:
+let d1: Decision = parse_llm(r#"{"type": "start_task", "skill_id": "test", "reasoning": "clear"}"#).unwrap();
+let d2: Decision = parse_llm(r#"{"type": "StartTask", "skill_id": "test", "reasoning": "clear"}"#).unwrap();
+let d3: Decision = parse_llm(r#"{"type": "startTask", "skill_id": "test", "reasoning": "clear"}"#).unwrap();
+let d4: Decision = parse_llm(r#"{"type": "start-task", "skill_id": "test", "reasoning": "clear"}"#).unwrap();
+let d5: Decision = parse_llm(r#"{"type": "STARTTASK", "skill_id": "test", "reasoning": "clear"}"#).unwrap();
+```
+
 **Union types** - Automatically picks the best variant:
 
 ```rust
@@ -141,6 +161,9 @@ fn parse_with_candidates<T: DeserializeOwned>(input: &str) -> Result<(T, Vec<Fle
 
 // Parse with custom parser configuration
 fn parse_with_parser<T: DeserializeOwned>(input: &str, parser: &FlexibleParser) -> Result<T>
+
+// Parse with metadata (strategy used, duration, candidates evaluated)
+fn parse_with_metadata<T: DeserializeOwned>(input: &str) -> Result<(T, ParseMetadata)>
 ```
 
 ### Advanced Parsing (requires `derive` feature)
@@ -335,12 +358,14 @@ for (i, candidate) in candidates.iter().enumerate() {
 ### Custom Parser Configuration
 
 ```rust
-use tryparse::parser::{FlexibleParser, strategies::*};
+use tryparse::parser::FlexibleParser;
+use tryparse::parse_with_parser;
 
-let parser = FlexibleParser::new()
-    .with_strategy(DirectJsonStrategy)
-    .with_strategy(MarkdownStrategy::new())
-    .with_strategy(JsonFixerStrategy::new());
+// Use builder pattern for custom configuration
+let parser = FlexibleParser::builder()
+    .without_heuristic()  // Disable heuristic extraction
+    .without_markdown()   // Disable markdown extraction
+    .build();
 
 let data: User = parse_with_parser(input, &parser).unwrap();
 ```
@@ -408,7 +433,7 @@ Available features:
 ## Testing
 
 ```bash
-# Unit tests (227 tests in lib)
+# Unit tests (226 tests in lib)
 cargo test --lib
 
 # All tests (lib + integration + doc tests)
@@ -472,11 +497,12 @@ match parse::<User>(input) {
 4. **Acronym handling** - `XMLParser` → `x_m_l_parser` (not `xml_parser`)
 5. **Best-effort parsing** - May produce unexpected results on ambiguous input
 6. **No custom deserializers** - Can't implement custom `Deserialize` logic for fields
+7. **Internally-tagged enum fields** - Tag values support fuzzy matching, but variant fields use standard serde deserialization (exact match or serde's `rename_all`)
 
 ## Contributing
 
 Requirements:
-- Rust 1.85.0+
+- Rust 1.70.0+
 - Run `cargo fmt` before committing
 - Pass `cargo clippy --all-targets --all-features`
 - All tests must pass: `cargo test --all-features`

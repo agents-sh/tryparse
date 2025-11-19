@@ -24,7 +24,7 @@ static CODE_BLOCK_REGEX: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)```(\w*)\n(
 /// ```
 /// use tryparse::parser::strategies::{ParsingStrategy, MarkdownStrategy};
 ///
-/// let strategy = MarkdownStrategy::default();
+/// let strategy = MarkdownStrategy;
 /// // Input with markdown code fence containing JSON
 /// let input = "Here's the data:\n```json\n{\"name\": \"Alice\"}\n```\n";
 /// let result = strategy.parse(input).unwrap();
@@ -313,7 +313,7 @@ mod tests {
 
     #[test]
     fn test_extract_json_code_block() {
-        let strategy = MarkdownStrategy::default();
+        let strategy = MarkdownStrategy;
         let input = r#"
 Here's the response:
 ```json
@@ -332,7 +332,7 @@ Here's the response:
 
     #[test]
     fn test_extract_generic_code_block() {
-        let strategy = MarkdownStrategy::default();
+        let strategy = MarkdownStrategy;
         let input = r#"
 Response:
 ```
@@ -348,7 +348,7 @@ Response:
 
     #[test]
     fn test_multiple_code_blocks() {
-        let strategy = MarkdownStrategy::default();
+        let strategy = MarkdownStrategy;
         let input = r#"
 First block:
 ```json
@@ -371,7 +371,7 @@ Second block:
 
     #[test]
     fn test_prefer_json_tagged_blocks() {
-        let strategy = MarkdownStrategy::default();
+        let strategy = MarkdownStrategy;
         let input = r#"
 Generic:
 ```
@@ -392,7 +392,7 @@ JSON:
 
     #[test]
     fn test_no_code_blocks() {
-        let strategy = MarkdownStrategy::default();
+        let strategy = MarkdownStrategy;
         let result = strategy.parse("Just plain text").unwrap();
 
         assert_eq!(result.len(), 0);
@@ -400,7 +400,7 @@ JSON:
 
     #[test]
     fn test_invalid_json_in_code_block() {
-        let strategy = MarkdownStrategy::default();
+        let strategy = MarkdownStrategy;
         let input = r#"
 ```json
 {invalid json}
@@ -413,7 +413,7 @@ JSON:
 
     #[test]
     fn test_jsonc_language_tag() {
-        let strategy = MarkdownStrategy::default();
+        let strategy = MarkdownStrategy;
         let input = r#"
 ```jsonc
 {"name": "Alice"}
@@ -427,7 +427,7 @@ JSON:
 
     #[test]
     fn test_json5_language_tag() {
-        let strategy = MarkdownStrategy::default();
+        let strategy = MarkdownStrategy;
         let input = r#"
 ```json5
 {"name": "Alice"}
@@ -441,7 +441,7 @@ JSON:
 
     #[test]
     fn test_extract_code_blocks() {
-        let strategy = MarkdownStrategy::default();
+        let strategy = MarkdownStrategy;
         let input = r#"
 ```json
 {"a": 1}
@@ -475,7 +475,7 @@ print("hello")
 
     #[test]
     fn test_nested_braces_in_code_block() {
-        let strategy = MarkdownStrategy::default();
+        let strategy = MarkdownStrategy;
         let input = r#"
 ```json
 {
@@ -506,7 +506,7 @@ print("hello")
 
     #[test]
     fn test_array_in_code_block() {
-        let strategy = MarkdownStrategy::default();
+        let strategy = MarkdownStrategy;
         let input = r#"
 ```json
 [1, 2, 3, 4, 5]
@@ -520,7 +520,7 @@ print("hello")
 
     #[test]
     fn test_trailing_comma_in_markdown_json() {
-        let strategy = MarkdownStrategy::default();
+        let strategy = MarkdownStrategy;
         let input = r#"
 some text
 ```json
@@ -550,7 +550,7 @@ some text
 
     #[test]
     fn test_remove_trailing_commas() {
-        let strategy = MarkdownStrategy::default();
+        let strategy = MarkdownStrategy;
 
         // Test array with trailing comma
         let input1 = "[1, 2, 3,]";

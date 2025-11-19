@@ -252,11 +252,9 @@ pub fn parse_with_metadata<T: DeserializeOwned>(input: &str) -> Result<(T, Parse
     let ranked = scoring::rank_candidates(candidates);
 
     let mut errors = Vec::new();
-    let mut candidates_evaluated = 0;
 
-    for i in 0..ranked.len() {
-        candidates_evaluated += 1;
-        let candidate = &ranked[i];
+    for (idx, candidate) in ranked.iter().enumerate() {
+        let candidates_evaluated = idx + 1;
         let mut deserializer = CoercingDeserializer::new(candidate.clone());
         match T::deserialize(&mut deserializer) {
             Ok(value) => {

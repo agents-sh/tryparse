@@ -74,7 +74,7 @@ impl FlexibleParser {
             Box::new(RawPrimitiveStrategy::new()),
             Box::new(StateMachineStrategy::new()),
             Box::new(HeuristicStrategy::default()),
-            Box::new(MarkdownStrategy::default()),
+            Box::new(MarkdownStrategy),
             Box::new(MultipleObjectsStrategy::new()),
         ];
 
@@ -124,6 +124,7 @@ impl FlexibleParser {
 /// Builder for creating a `FlexibleParser` with custom configuration.
 pub struct FlexibleParserBuilder {
     use_defaults: bool,
+    #[cfg(feature = "yaml")]
     without_yaml: bool,
     without_markdown: bool,
     without_heuristic: bool,
@@ -135,6 +136,7 @@ impl FlexibleParserBuilder {
     fn new() -> Self {
         Self {
             use_defaults: true,
+            #[cfg(feature = "yaml")]
             without_yaml: false,
             without_markdown: false,
             without_heuristic: false,
@@ -193,7 +195,7 @@ impl FlexibleParserBuilder {
             }
 
             if !self.without_markdown {
-                default_strategies.push(Box::new(MarkdownStrategy::default()));
+                default_strategies.push(Box::new(MarkdownStrategy));
             }
 
             #[cfg(feature = "yaml")]
@@ -421,7 +423,7 @@ impl FlexibleParser {
         let extractors: Vec<Box<dyn Extractor>> = vec![
             Box::new(DirectExtractor),
             Box::new(HeuristicExtractor::default()),
-            Box::new(MarkdownExtractor::default()),
+            Box::new(MarkdownExtractor),
         ];
 
         // Run all extractors
