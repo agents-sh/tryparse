@@ -14,14 +14,14 @@ use tryparse::parse_llm;
 use tryparse_derive::LlmDeserialize;
 
 #[cfg(feature = "derive")]
-#[derive(Debug, PartialEq, LlmDeserialize)]
+#[derive(Debug, PartialEq, serde::Deserialize, LlmDeserialize)]
 struct User {
     user_name: String,
     max_count: i64,
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, PartialEq, LlmDeserialize)]
+#[derive(Debug, PartialEq, serde::Deserialize, LlmDeserialize)]
 struct Config {
     xml_parser: String,
     io_error: String,

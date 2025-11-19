@@ -69,8 +69,24 @@ pub fn derive_llm_deserialize(input: TokenStream) -> TokenStream {
     match &input.data {
         Data::Struct(data_struct) => {
             let deserialize_impl = generate_struct_deserialize(name, data_struct);
+            let name_str = name.to_string();
 
             let expanded = quote! {
+                // Compile-time check: LlmDeserialize requires serde::Deserialize
+                const _: () = {
+                    fn __assert_deserialize_impl<__T: ::serde::de::DeserializeOwned>() {}
+                    fn __check_deserialize_bound() {
+                        __assert_deserialize_impl::<#name #ty_generics>();
+                    }
+
+                    // Provide a helpful error message
+                    #[doc = concat!(
+                        "LlmDeserialize requires serde::Deserialize. ",
+                        "Add `#[derive(serde::Deserialize)]` to `", #name_str, "`."
+                    )]
+                    const __LLMDESERIALIZE_REQUIRES_SERDE: () = ();
+                };
+
                 impl #impl_generics ::tryparse::deserializer::LlmDeserialize for #name #ty_generics #where_clause {
                     #deserialize_impl
                 }
@@ -88,7 +104,24 @@ pub fn derive_llm_deserialize(input: TokenStream) -> TokenStream {
                 generate_enum_deserialize(name, data_enum, &input.attrs)
             };
 
+            let name_str = name.to_string();
+
             let expanded = quote! {
+                // Compile-time check: LlmDeserialize requires serde::Deserialize
+                const _: () = {
+                    fn __assert_deserialize_impl<__T: ::serde::de::DeserializeOwned>() {}
+                    fn __check_deserialize_bound() {
+                        __assert_deserialize_impl::<#name #ty_generics>();
+                    }
+
+                    // Provide a helpful error message
+                    #[doc = concat!(
+                        "LlmDeserialize requires serde::Deserialize. ",
+                        "Add `#[derive(serde::Deserialize)]` to `", #name_str, "`."
+                    )]
+                    const __LLMDESERIALIZE_REQUIRES_SERDE: () = ();
+                };
+
                 impl #impl_generics ::tryparse::deserializer::LlmDeserialize for #name #ty_generics #where_clause {
                     #deserialize_impl
                 }

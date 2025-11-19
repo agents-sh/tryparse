@@ -10,7 +10,7 @@ use tryparse::parse_llm;
 use tryparse_derive::LlmDeserialize;
 
 #[cfg(feature = "derive")]
-#[derive(Debug, LlmDeserialize)]
+#[derive(Debug, serde::Deserialize, LlmDeserialize)]
 struct User {
     name: String,
     age: i64,
@@ -47,7 +47,7 @@ fn test_pascalcase_fields() {
 #[cfg(feature = "derive")]
 #[test]
 fn test_kebab_case_fields() {
-    #[derive(Debug, LlmDeserialize)]
+    #[derive(Debug, serde::Deserialize, LlmDeserialize)]
     struct Config {
         user_name: String,
         max_count: i64,
@@ -67,7 +67,7 @@ fn test_kebab_case_fields() {
 #[cfg(feature = "derive")]
 #[test]
 fn test_dot_notation_fields() {
-    #[derive(Debug, LlmDeserialize)]
+    #[derive(Debug, serde::Deserialize, LlmDeserialize)]
     struct Config {
         user_name: String,
         max_count: i64,

@@ -377,7 +377,7 @@ pub fn parse_with_parser<T: DeserializeOwned>(input: &str, parser: &FlexiblePars
 /// use tryparse_derive::LlmDeserialize;
 ///
 /// #[cfg(feature = "derive")]
-/// #[derive(Debug, LlmDeserialize, PartialEq)]
+/// #[derive(Debug, serde::Deserialize, LlmDeserialize, PartialEq)]
 /// struct User {
 ///     name: String,
 ///     age: i64,
@@ -419,7 +419,7 @@ pub fn parse_llm<T: LlmDeserialize>(input: &str) -> Result<T> {
 /// use tryparse_derive::LlmDeserialize;
 ///
 /// #[cfg(feature = "derive")]
-/// #[derive(LlmDeserialize)]
+/// #[derive(serde::Deserialize, LlmDeserialize)]
 /// struct Data {
 ///     value: i64,
 /// }

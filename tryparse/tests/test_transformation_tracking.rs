@@ -93,7 +93,7 @@ fn test_array_to_struct_with_optional_fields() {
 #[cfg(feature = "derive")]
 #[test]
 fn test_union_transformation_tracking() {
-    #[derive(Debug, LlmDeserialize, PartialEq)]
+    #[derive(Debug, serde::Deserialize, LlmDeserialize, PartialEq)]
     #[llm(union)] // Use tryparse union attribute, not serde's untagged
     enum StringOrNumber {
         String(String),

@@ -181,7 +181,7 @@ fn test_array_incomplete() {
 // ================================================================================================
 
 #[cfg(feature = "derive")]
-#[derive(Debug, PartialEq, LlmDeserialize)]
+#[derive(Debug, PartialEq, serde::Deserialize, LlmDeserialize)]
 struct SimpleStruct {
     key: String,
 }
@@ -210,7 +210,7 @@ fn test_object_incomplete_string() {
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, PartialEq, LlmDeserialize)]
+#[derive(Debug, PartialEq, serde::Deserialize, LlmDeserialize)]
 struct NestedStruct {
     key: Vec<i64>,
 }
@@ -318,7 +318,7 @@ fn test_multiple_with_prefix_suffix() {
 // ================================================================================================
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
 struct ComplexStruct {
     key: String,
     array: Vec<i64>,
@@ -326,7 +326,7 @@ struct ComplexStruct {
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
 struct InnerObject {
     key: String,
 }
@@ -486,13 +486,13 @@ fn test_unquoted_values_with_spaces() {
 // ================================================================================================
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
 struct Answer {
     content: f64,
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
 struct TestWithAnswer {
     answer: Answer,
 }
@@ -514,7 +514,7 @@ fn test_whitespace_in_keys() {
 #[cfg(feature = "derive")]
 #[test]
 fn test_localization_example() {
-    #[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+    #[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
     struct Localization {
         id: String,
         #[allow(non_snake_case)]
@@ -554,14 +554,14 @@ JSON Output:
 #[cfg(feature = "derive")]
 #[test]
 fn test_triple_quoted_strings() {
-    #[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+    #[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
     struct Heading {
         heading: String,
         python_function_code: String,
         description: String,
     }
 
-    #[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+    #[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
     struct Headings {
         headings: Vec<Heading>,
     }

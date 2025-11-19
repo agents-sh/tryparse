@@ -11,7 +11,7 @@ use tryparse::{
 use tryparse_derive::LlmDeserialize;
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct User {
     name: String,
     age: i64,
@@ -77,7 +77,7 @@ fn test_derive_fuzzy_field_matching() {
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct Address {
     street: String,
     city: String,
@@ -85,7 +85,7 @@ struct Address {
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct Person {
     name: String,
     age: i64,
@@ -134,7 +134,7 @@ fn test_derive_required_field_missing() {
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct Container {
     items: Vec<String>,
 }
@@ -177,7 +177,7 @@ fn test_derive_extra_keys() {
 // ===== Enum Tests =====
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 enum Status {
     Active,
     Inactive,
@@ -269,7 +269,7 @@ fn test_enum_invalid_variant() {
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct Task {
     name: String,
     status: Status,
@@ -311,7 +311,7 @@ fn test_enum_in_struct_fuzzy() {
 // ===== Union Tests =====
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 #[llm(union)]
 enum StringOrInt {
     String(String),
@@ -375,14 +375,14 @@ fn test_union_no_match() {
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct ComplexStruct {
     name: String,
     value: i64,
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 #[llm(union)]
 enum StringOrStruct {
     String(String),
@@ -428,7 +428,7 @@ fn test_union_string_vs_struct() {
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 #[llm(union)]
 enum VecOrSingle {
     Vec(Vec<i64>),
@@ -463,7 +463,7 @@ fn test_union_single_value_prefers_single() {
 // ===== HashMap Tests =====
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct Config {
     settings: std::collections::HashMap<String, String>,
 }
@@ -490,7 +490,7 @@ fn test_struct_with_hashmap() {
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct Scores {
     values: std::collections::HashMap<String, i64>,
 }
@@ -517,7 +517,7 @@ fn test_struct_with_hashmap_int_values() {
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct NestedData {
     name: String,
     metadata: std::collections::HashMap<String, String>,
@@ -1353,7 +1353,7 @@ fn test_negotiation_field_fuzzy_match_works() {
 #[test]
 fn test_negotiation_compare_with_regular_struct() {
     // Compare: Regular struct WITH fuzzy field matching
-    #[derive(Debug, LlmDeserialize)]
+    #[derive(Debug, serde::Deserialize, LlmDeserialize)]
     #[allow(dead_code)] // Fields are deserialized but not directly accessed in test
     struct RegularStruct {
         skill_id: String,

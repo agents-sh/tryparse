@@ -9,7 +9,7 @@ use tryparse::parse_llm;
 use tryparse_derive::LlmDeserialize;
 
 #[cfg(feature = "derive")]
-#[derive(Debug, LlmDeserialize)]
+#[derive(Debug, serde::Deserialize, LlmDeserialize)]
 struct Config {
     user_name: String,
     max_count: i64,

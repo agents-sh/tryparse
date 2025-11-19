@@ -133,7 +133,7 @@ fn test_yaml_style() {
 fn test_field_name_variations() {
     use tryparse_derive::LlmDeserialize;
 
-    #[derive(Debug, LlmDeserialize)]
+    #[derive(Debug, serde::Deserialize, LlmDeserialize)]
     struct Config {
         user_name: String,
         max_count: i64,

@@ -15,13 +15,13 @@ use tryparse_derive::LlmDeserialize;
 // ================================================================================================
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
 struct Foo {
     hi: Vec<String>,
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
 struct Bar {
     foo: String,
 }
@@ -107,7 +107,7 @@ fn test_string_with_markdown_in_value() {
 // ================================================================================================
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
 struct OptionalFoo {
     foo: Option<String>,
 }
@@ -135,7 +135,7 @@ fn test_optional_field_empty_string() {
 // ================================================================================================
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
 struct MultiFieldFoo {
     one: String,
     two: Option<String>,
@@ -191,7 +191,7 @@ fn test_multi_field_in_markdown() {
 // ================================================================================================
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
 struct MultiFieldWithList {
     a: i64,
     b: String,
@@ -214,13 +214,13 @@ fn test_struct_with_mixed_types() {
 // ================================================================================================
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
 struct InnerFoo {
     a: String,
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
 struct OuterBar {
     foo: InnerFoo,
 }
@@ -257,7 +257,7 @@ fn test_nested_struct_in_markdown() {
 // ================================================================================================
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
 struct SnakeCaseStruct {
     field_name: String,
     another_field: i64,
@@ -290,7 +290,7 @@ fn test_pascal_case_to_snake_case() {
 // ================================================================================================
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
 struct TypeCoercionStruct {
     int_field: i64,
     float_field: f64,
@@ -343,7 +343,7 @@ fn test_number_to_string_coercion() {
 // ================================================================================================
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
 struct StrictStruct {
     expected_field: String,
 }
@@ -370,7 +370,7 @@ fn test_extra_fields_ignored() {
 #[cfg(feature = "derive")]
 #[test]
 fn test_empty_struct() {
-    #[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+    #[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
     struct EmptyStruct {}
 
     let result: Result<EmptyStruct, _> = parse_llm(r#"{}"#);
@@ -380,7 +380,7 @@ fn test_empty_struct() {
 #[cfg(feature = "derive")]
 #[test]
 fn test_single_field_struct() {
-    #[derive(Debug, Clone, PartialEq, LlmDeserialize)]
+    #[derive(Debug, Clone, PartialEq, serde::Deserialize, LlmDeserialize)]
     struct SingleField {
         value: i64,
     }

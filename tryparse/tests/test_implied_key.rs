@@ -74,7 +74,7 @@ fn test_single_field_array_implied_key() {
 fn test_implied_key_with_llm_deserialize() {
     use tryparse_derive::LlmDeserialize;
 
-    #[derive(Debug, LlmDeserialize, PartialEq)]
+    #[derive(Debug, serde::Deserialize, LlmDeserialize, PartialEq)]
     struct Wrapper {
         data: String,
     }
@@ -91,7 +91,7 @@ fn test_implied_key_with_llm_deserialize() {
     );
 
     // Also works with numbers
-    #[derive(Debug, LlmDeserialize)]
+    #[derive(Debug, serde::Deserialize, LlmDeserialize)]
     struct NumWrapper {
         value: i64,
     }

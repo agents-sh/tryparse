@@ -19,7 +19,7 @@ use tryparse_derive::LlmDeserialize;
 // ===== Complex Nested Structures =====
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 enum Role {
     Admin,
     User,
@@ -27,7 +27,7 @@ enum Role {
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct Address {
     street: String,
     city: String,
@@ -35,14 +35,14 @@ struct Address {
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct Profile {
     bio: Option<String>,
     avatar_url: Option<String>,
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct User {
     name: String,
     age: i64,
@@ -179,7 +179,7 @@ Let me know if you need anything else!
 // ===== Union Type Tests =====
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 #[llm(union)]
 enum IntOrString {
     Int(i64),
@@ -187,7 +187,7 @@ enum IntOrString {
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct FlexibleData {
     value: IntOrString,
     count: i64,
@@ -212,7 +212,7 @@ fn test_union_in_struct() {
 // ===== Array of Complex Objects =====
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct Task {
     title: String,
     completed: bool,
@@ -294,7 +294,7 @@ fn test_hashmap_preserves_keys() {
 // ===== Edge Cases =====
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct EmptyStruct {
     data: HashMap<String, String>,
     items: Vec<String>,
@@ -312,7 +312,7 @@ fn test_empty_collections() {
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct WithOptionals {
     required: String,
     optional1: Option<String>,
@@ -346,7 +346,7 @@ fn test_partial_optionals() {
 // ===== Type Coercion Scenarios =====
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct CoercionTest {
     int_from_string: i64,
     bool_from_string: bool,
@@ -372,7 +372,7 @@ fn test_all_coercion_types() {
 // ===== Enum Fuzzy Matching =====
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 enum Status {
     InProgress,
     Completed,
@@ -380,7 +380,7 @@ enum Status {
 }
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct Project {
     name: String,
     status: Status,
@@ -408,7 +408,7 @@ fn test_enum_fuzzy_matching_scenarios() {
 // ===== Real-World Example =====
 
 #[cfg(feature = "derive")]
-#[derive(Debug, Clone, LlmDeserialize, PartialEq)]
+#[derive(Debug, Clone, serde::Deserialize, LlmDeserialize, PartialEq)]
 struct ApiResponse {
     success: bool,
     data: Option<User>,
