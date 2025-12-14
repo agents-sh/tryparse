@@ -13,6 +13,7 @@ pub fn generate_union_deserialize(
     name: &syn::Ident,
     data: &syn::DataEnum,
     _attrs: &[syn::Attribute],
+    tryparse_crate: &TokenStream,
 ) -> TokenStream {
     if data.variants.len() != 2 {
         return syn::Error::new_spanned(name, "Union enums must have exactly 2 variants")
@@ -52,15 +53,15 @@ pub fn generate_union_deserialize(
 
     quote! {
         fn deserialize(
-            value: &::tryparse::value::FlexValue,
-            ctx: &mut ::tryparse::deserializer::CoercionContext,
-        ) -> ::tryparse::error::Result<Self> {
-            use ::tryparse::deserializer::LlmDeserialize;
+            value: &#tryparse_crate::value::FlexValue,
+            ctx: &mut #tryparse_crate::deserializer::CoercionContext,
+        ) -> #tryparse_crate::error::Result<Self> {
+            use #tryparse_crate::deserializer::LlmDeserialize;
 
             // BAML ALGORITHM: Try strict matching first (try_cast)
             if let Some(v1) = <#variant1_type as LlmDeserialize>::try_deserialize(value, ctx) {
                 // Add UnionMatch transformation for strict match
-                ctx.add_transformation(::tryparse::value::Transformation::UnionMatch {
+                ctx.add_transformation(#tryparse_crate::value::Transformation::UnionMatch {
                     index: 0,
                     candidates: vec![
                         stringify!(#variant1_type).to_string(),
@@ -72,7 +73,7 @@ pub fn generate_union_deserialize(
 
             if let Some(v2) = <#variant2_type as LlmDeserialize>::try_deserialize(value, ctx) {
                 // Add UnionMatch transformation for strict match
-                ctx.add_transformation(::tryparse::value::Transformation::UnionMatch {
+                ctx.add_transformation(#tryparse_crate::value::Transformation::UnionMatch {
                     index: 1,
                     candidates: vec![
                         stringify!(#variant1_type).to_string(),
@@ -105,8 +106,8 @@ pub fn generate_union_deserialize(
             }
 
             if matches.is_empty() {
-                return Err(::tryparse::error::ParseError::DeserializeFailed(
-                    ::tryparse::error::DeserializeError::Custom(
+                return Err(#tryparse_crate::error::ParseError::DeserializeFailed(
+                    #tryparse_crate::error::DeserializeError::Custom(
                         "No union variant matched".to_string()
                     )
                 ));
@@ -117,7 +118,7 @@ pub fn generate_union_deserialize(
 
             // Add UnionMatch transformation to track which variant was selected
             let variant_index = (matches[0].variant - 1) as usize;
-            ctx.add_transformation(::tryparse::value::Transformation::UnionMatch {
+            ctx.add_transformation(#tryparse_crate::value::Transformation::UnionMatch {
                 index: variant_index,
                 candidates: vec![
                     stringify!(#variant1_type).to_string(),

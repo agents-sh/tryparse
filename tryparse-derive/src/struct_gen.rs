@@ -5,7 +5,11 @@ use quote::quote;
 use syn::{Fields, GenericArgument, PathArguments, Type};
 
 /// Generate deserialization code for structs with named fields.
-pub fn generate_struct_deserialize(name: &syn::Ident, data: &syn::DataStruct) -> TokenStream {
+pub fn generate_struct_deserialize(
+    name: &syn::Ident,
+    data: &syn::DataStruct,
+    tryparse_crate: &TokenStream,
+) -> TokenStream {
     match &data.fields {
         Fields::Named(fields) => {
             let field_names: Vec<_> = fields.named.iter().map(|f| &f.ident).collect();
@@ -42,7 +46,7 @@ pub fn generate_struct_deserialize(name: &syn::Ident, data: &syn::DataStruct) ->
                 .map(|((name, ty), opt)| {
                     let type_name = quote!(stringify!(#ty)).to_string();
                     quote! {
-                        .field(::tryparse::deserializer::FieldDescriptor::new(
+                        .field(#tryparse_crate::deserializer::FieldDescriptor::new(
                             #name,
                             #type_name,
                             #opt
@@ -92,8 +96,8 @@ pub fn generate_struct_deserialize(name: &syn::Ident, data: &syn::DataStruct) ->
                         let #field_name = fields.get(#field_name_str)
                             .and_then(|v| v.downcast_ref::<#inner_ty>())
                             .cloned()
-                            .ok_or_else(|| ::tryparse::error::ParseError::DeserializeFailed(
-                                ::tryparse::error::DeserializeError::missing_field(#field_name_str)
+                            .ok_or_else(|| #tryparse_crate::error::ParseError::DeserializeFailed(
+                                #tryparse_crate::error::DeserializeError::missing_field(#field_name_str)
                             ))?;
                     }
                 }
@@ -101,12 +105,12 @@ pub fn generate_struct_deserialize(name: &syn::Ident, data: &syn::DataStruct) ->
 
             quote! {
                 fn try_deserialize(
-                    value: &::tryparse::value::FlexValue,
-                    ctx: &mut ::tryparse::deserializer::CoercionContext,
+                    value: &#tryparse_crate::value::FlexValue,
+                    ctx: &mut #tryparse_crate::deserializer::CoercionContext,
                 ) -> Option<Self> {
                     use std::any::Any;
 
-                    let mut deserializer = ::tryparse::deserializer::StructDeserializer::new()
+                    let mut deserializer = #tryparse_crate::deserializer::StructDeserializer::new()
                         #(#field_descriptors)*;
 
                     let fields = deserializer.try_deserialize(
@@ -119,7 +123,7 @@ pub fn generate_struct_deserialize(name: &syn::Ident, data: &syn::DataStruct) ->
                                 #(
                                     #field_name_strs => {
                                         // Try strict deserialization
-                                        <#inner_types as ::tryparse::deserializer::LlmDeserialize>::try_deserialize(field_value, field_ctx)
+                                        <#inner_types as #tryparse_crate::deserializer::LlmDeserialize>::try_deserialize(field_value, field_ctx)
                                             .map(|v| Box::new(v) as Box<dyn Any>)
                                     }
                                 )*
@@ -137,12 +141,12 @@ pub fn generate_struct_deserialize(name: &syn::Ident, data: &syn::DataStruct) ->
                 }
 
                 fn deserialize(
-                    value: &::tryparse::value::FlexValue,
-                    ctx: &mut ::tryparse::deserializer::CoercionContext,
-                ) -> ::tryparse::error::Result<Self> {
+                    value: &#tryparse_crate::value::FlexValue,
+                    ctx: &mut #tryparse_crate::deserializer::CoercionContext,
+                ) -> #tryparse_crate::error::Result<Self> {
                     use std::any::Any;
 
-                    let mut deserializer = ::tryparse::deserializer::StructDeserializer::new()
+                    let mut deserializer = #tryparse_crate::deserializer::StructDeserializer::new()
                         #(#field_descriptors)*;
 
                     let fields = deserializer.deserialize(
@@ -156,11 +160,11 @@ pub fn generate_struct_deserialize(name: &syn::Ident, data: &syn::DataStruct) ->
                                     #field_name_strs => {
                                         if strict {
                                             // Try strict deserialization
-                                            if let Some(v) = <#inner_types as ::tryparse::deserializer::LlmDeserialize>::try_deserialize(field_value, field_ctx) {
+                                            if let Some(v) = <#inner_types as #tryparse_crate::deserializer::LlmDeserialize>::try_deserialize(field_value, field_ctx) {
                                                 Ok(Box::new(v) as Box<dyn Any>)
                                             } else {
-                                                Err(::tryparse::error::ParseError::DeserializeFailed(
-                                                    ::tryparse::error::DeserializeError::type_mismatch(
+                                                Err(#tryparse_crate::error::ParseError::DeserializeFailed(
+                                                    #tryparse_crate::error::DeserializeError::type_mismatch(
                                                         stringify!(#inner_types),
                                                         "value"
                                                     )
@@ -168,13 +172,13 @@ pub fn generate_struct_deserialize(name: &syn::Ident, data: &syn::DataStruct) ->
                                             }
                                         } else {
                                             // Lenient deserialization
-                                            let v = <#inner_types as ::tryparse::deserializer::LlmDeserialize>::deserialize(field_value, field_ctx)?;
+                                            let v = <#inner_types as #tryparse_crate::deserializer::LlmDeserialize>::deserialize(field_value, field_ctx)?;
                                             Ok(Box::new(v) as Box<dyn Any>)
                                         }
                                     }
                                 )*
-                                _ => Err(::tryparse::error::ParseError::DeserializeFailed(
-                                    ::tryparse::error::DeserializeError::Custom(
+                                _ => Err(#tryparse_crate::error::ParseError::DeserializeFailed(
+                                    #tryparse_crate::error::DeserializeError::Custom(
                                         format!("Unknown field: {}", field_name)
                                     )
                                 ))

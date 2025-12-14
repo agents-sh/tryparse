@@ -9,13 +9,47 @@ mod struct_gen;
 mod union_gen;
 
 use proc_macro::TokenStream;
+use proc_macro2::{Span, TokenStream as TokenStream2};
+use proc_macro_crate::{crate_name, FoundCrate};
 use quote::quote;
-use syn::{parse_macro_input, Data, DeriveInput};
+use syn::{parse_macro_input, Data, DeriveInput, Ident};
 
 use attributes::has_union_attribute;
 use enum_gen::generate_enum_deserialize;
 use struct_gen::generate_struct_deserialize;
 use union_gen::generate_union_deserialize;
+
+/// Finds the path to the tryparse crate, checking both direct dependency
+/// and re-exports through other crates (like radkit).
+fn get_tryparse_crate() -> TokenStream2 {
+    // First, try to find tryparse directly
+    if let Ok(found) = crate_name("tryparse") {
+        return match found {
+            // FoundCrate::Itself means we're compiling within the tryparse crate itself.
+            // However, doc tests can't use `crate::` paths - they need fully qualified paths.
+            // So we use `::tryparse` which works for both regular builds and doc tests.
+            FoundCrate::Itself => quote!(::tryparse),
+            FoundCrate::Name(name) => {
+                let ident = Ident::new(&name, Span::call_site());
+                quote!(::#ident)
+            }
+        };
+    }
+
+    // If not found directly, look for radkit which re-exports tryparse
+    if let Ok(found) = crate_name("radkit") {
+        match found {
+            FoundCrate::Itself => return quote!(crate::__private_tryparse),
+            FoundCrate::Name(name) => {
+                let ident = Ident::new(&name, Span::call_site());
+                return quote!(::#ident::__private_tryparse);
+            }
+        }
+    }
+
+    // Fallback to direct path (will fail at compile time with helpful error)
+    quote!(::tryparse)
+}
 
 /// Derives the `LlmDeserialize` trait for structs and enums.
 ///
@@ -61,6 +95,7 @@ use union_gen::generate_union_deserialize;
 #[proc_macro_derive(LlmDeserialize, attributes(llm))]
 pub fn derive_llm_deserialize(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
+    let tryparse_crate = get_tryparse_crate();
 
     let name = &input.ident;
     let generics = &input.generics;
@@ -68,7 +103,7 @@ pub fn derive_llm_deserialize(input: TokenStream) -> TokenStream {
 
     match &input.data {
         Data::Struct(data_struct) => {
-            let deserialize_impl = generate_struct_deserialize(name, data_struct);
+            let deserialize_impl = generate_struct_deserialize(name, data_struct, &tryparse_crate);
             let name_str = name.to_string();
 
             let expanded = quote! {
@@ -87,7 +122,7 @@ pub fn derive_llm_deserialize(input: TokenStream) -> TokenStream {
                     const __LLMDESERIALIZE_REQUIRES_SERDE: () = ();
                 };
 
-                impl #impl_generics ::tryparse::deserializer::LlmDeserialize for #name #ty_generics #where_clause {
+                impl #impl_generics #tryparse_crate::deserializer::LlmDeserialize for #name #ty_generics #where_clause {
                     #deserialize_impl
                 }
             };
@@ -99,9 +134,9 @@ pub fn derive_llm_deserialize(input: TokenStream) -> TokenStream {
             let is_union = has_union_attribute(&input.attrs);
 
             let deserialize_impl = if is_union {
-                generate_union_deserialize(name, data_enum, &input.attrs)
+                generate_union_deserialize(name, data_enum, &input.attrs, &tryparse_crate)
             } else {
-                generate_enum_deserialize(name, data_enum, &input.attrs)
+                generate_enum_deserialize(name, data_enum, &input.attrs, &tryparse_crate)
             };
 
             let name_str = name.to_string();
@@ -122,7 +157,7 @@ pub fn derive_llm_deserialize(input: TokenStream) -> TokenStream {
                     const __LLMDESERIALIZE_REQUIRES_SERDE: () = ();
                 };
 
-                impl #impl_generics ::tryparse::deserializer::LlmDeserialize for #name #ty_generics #where_clause {
+                impl #impl_generics #tryparse_crate::deserializer::LlmDeserialize for #name #ty_generics #where_clause {
                     #deserialize_impl
                 }
             };

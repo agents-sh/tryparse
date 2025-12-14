@@ -16,15 +16,16 @@ pub fn generate_enum_deserialize(
     name: &syn::Ident,
     data: &syn::DataEnum,
     attrs: &[syn::Attribute],
+    tryparse_crate: &TokenStream,
 ) -> TokenStream {
     // Check if this is an untagged enum
     if has_untagged_attribute(attrs) {
-        return generate_untagged_enum_deserialize(name, data);
+        return generate_untagged_enum_deserialize(name, data, tryparse_crate);
     }
 
     // Check if this is an internally-tagged enum
     match extract_tag_info(attrs) {
-        Ok(Some(tag_info)) => return generate_tagged_enum_deserialize(name, data, tag_info),
+        Ok(Some(tag_info)) => return generate_tagged_enum_deserialize(name, data, tag_info, tryparse_crate),
         Ok(None) => {}          // Continue with regular enum deserialization
         Err(err) => return err, // Return compile error
     }
@@ -35,7 +36,7 @@ pub fn generate_enum_deserialize(
     let matcher_setup = data.variants.iter().map(|v| {
         let variant_name = v.ident.to_string();
         quote! {
-            .variant(::tryparse::deserializer::enum_coercer::EnumVariant::new(#variant_name))
+            .variant(#tryparse_crate::deserializer::enum_coercer::EnumVariant::new(#variant_name))
         }
     });
 
@@ -55,8 +56,8 @@ pub fn generate_enum_deserialize(
                 // Complex variants with fields - not yet supported in derive macro
                 // Users can implement LlmDeserialize manually for these cases
                 quote! {
-                    #variant_name => Err(::tryparse::error::ParseError::DeserializeFailed(
-                        ::tryparse::error::DeserializeError::Custom(
+                    #variant_name => Err(#tryparse_crate::error::ParseError::DeserializeFailed(
+                        #tryparse_crate::error::DeserializeError::Custom(
                             format!("Enum variant '{}' has fields - derive macro only supports unit variants", #variant_name)
                         )
                     )),
@@ -67,15 +68,15 @@ pub fn generate_enum_deserialize(
 
     quote! {
         fn deserialize(
-            value: &::tryparse::value::FlexValue,
-            _ctx: &mut ::tryparse::deserializer::CoercionContext,
-        ) -> ::tryparse::error::Result<Self> {
+            value: &#tryparse_crate::value::FlexValue,
+            _ctx: &mut #tryparse_crate::deserializer::CoercionContext,
+        ) -> #tryparse_crate::error::Result<Self> {
             // Build matcher with all enum variants
-            let matcher = ::tryparse::deserializer::enum_coercer::EnumMatcher::new()
+            let matcher = #tryparse_crate::deserializer::enum_coercer::EnumMatcher::new()
                 #(#matcher_setup)*;
 
             // Use BAML's fuzzy matching to find the best variant
-            let matched_variant = ::tryparse::deserializer::enum_coercer::match_enum_variant(
+            let matched_variant = #tryparse_crate::deserializer::enum_coercer::match_enum_variant(
                 value,
                 &matcher
             )?;
@@ -83,8 +84,8 @@ pub fn generate_enum_deserialize(
             // Construct the matched variant
             match matched_variant.as_str() {
                 #(#match_arms)*
-                _ => Err(::tryparse::error::ParseError::DeserializeFailed(
-                    ::tryparse::error::DeserializeError::UnknownVariant {
+                _ => Err(#tryparse_crate::error::ParseError::DeserializeFailed(
+                    #tryparse_crate::error::DeserializeError::UnknownVariant {
                         enum_name: #name_str.to_string(),
                         variant: matched_variant,
                         suggestion: None, // No suggestion at derive level
@@ -103,6 +104,7 @@ fn generate_tagged_enum_deserialize(
     _name: &syn::Ident,
     data: &syn::DataEnum,
     tag_info: TaggedEnumInfo,
+    tryparse_crate: &TokenStream,
 ) -> TokenStream {
     let tag_field = &tag_info.tag_field;
     let content_field = &tag_info.content_field;
@@ -141,7 +143,7 @@ fn generate_tagged_enum_deserialize(
     // Build EnumMatcher setup with all variants
     let matcher_setup = variant_names.iter().map(|variant_name| {
         quote! {
-            .variant(::tryparse::deserializer::enum_coercer::EnumVariant::new(#variant_name))
+            .variant(#tryparse_crate::deserializer::enum_coercer::EnumVariant::new(#variant_name))
         }
     });
 
@@ -175,9 +177,9 @@ fn generate_tagged_enum_deserialize(
 
     quote! {
         fn deserialize(
-            value: &::tryparse::value::FlexValue,
-            ctx: &mut ::tryparse::deserializer::CoercionContext,
-        ) -> ::tryparse::error::Result<Self> {
+            value: &#tryparse_crate::value::FlexValue,
+            ctx: &mut #tryparse_crate::deserializer::CoercionContext,
+        ) -> #tryparse_crate::error::Result<Self> {
             use serde::Deserialize;
             use serde_json::Value;
 
@@ -185,8 +187,8 @@ fn generate_tagged_enum_deserialize(
             let obj = match &value.value {
                 Value::Object(obj) => obj,
                 _ => {
-                    return Err(::tryparse::error::ParseError::DeserializeFailed(
-                        ::tryparse::error::DeserializeError::type_mismatch(
+                    return Err(#tryparse_crate::error::ParseError::DeserializeFailed(
+                        #tryparse_crate::error::DeserializeError::type_mismatch(
                             "object (internally-tagged enum)",
                             "non-object"
                         )
@@ -198,15 +200,15 @@ fn generate_tagged_enum_deserialize(
             let tag_value = obj.get(#tag_field)
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| {
-                    ::tryparse::error::ParseError::DeserializeFailed(
-                        ::tryparse::error::DeserializeError::Custom(
+                    #tryparse_crate::error::ParseError::DeserializeFailed(
+                        #tryparse_crate::error::DeserializeError::Custom(
                             format!("Missing or non-string tag field '{}'", #tag_field)
                         )
                     )
                 })?;
 
             // Build matcher with all enum variants
-            let matcher = ::tryparse::deserializer::enum_coercer::EnumMatcher::new()
+            let matcher = #tryparse_crate::deserializer::enum_coercer::EnumMatcher::new()
                 #(#matcher_setup)*;
 
             // Use fuzzy matching to find the best variant
@@ -217,12 +219,12 @@ fn generate_tagged_enum_deserialize(
 
                     // Find closest match using levenshtein distance
                     let closest = valid_variants.iter()
-                        .min_by_key(|v| ::tryparse::deserializer::enum_coercer::levenshtein_distance(tag_value, v))
+                        .min_by_key(|v| #tryparse_crate::deserializer::enum_coercer::levenshtein_distance(tag_value, v))
                         .map(|s| *s)
                         .unwrap_or("");
 
-                    ::tryparse::error::ParseError::DeserializeFailed(
-                        ::tryparse::error::DeserializeError::Custom(
+                    #tryparse_crate::error::ParseError::DeserializeFailed(
+                        #tryparse_crate::error::DeserializeError::Custom(
                             format!(
                                 "Unknown variant '{}' for tag field '{}'. Valid variants: [{}]. Did you mean '{}'?",
                                 tag_value,
@@ -235,7 +237,7 @@ fn generate_tagged_enum_deserialize(
                 })?;
 
             // Apply rename_all transformation to the matched variant
-            let normalized_variant = ::tryparse::deserializer::struct_coercer::apply_rename_all(
+            let normalized_variant = #tryparse_crate::deserializer::struct_coercer::apply_rename_all(
                 &matched_variant,
                 #rename_all
             );
@@ -253,7 +255,7 @@ fn generate_tagged_enum_deserialize(
 
             // Track if tag was normalized
             if tag_value != &normalized_variant {
-                ctx.add_transformation(::tryparse::value::Transformation::FieldNameCaseChanged {
+                ctx.add_transformation(#tryparse_crate::value::Transformation::FieldNameCaseChanged {
                     from: tag_value.to_string(),
                     to: normalized_variant.clone(),
                 });
@@ -263,13 +265,13 @@ fn generate_tagged_enum_deserialize(
             // Fuzzy match and normalize field names for internally-tagged enums
             // (adjacently-tagged enums don't need this as fields are in content)
             for expected_field in expected_fields {
-                let matcher = ::tryparse::deserializer::struct_coercer::FieldMatcher::new(expected_field);
+                let matcher = #tryparse_crate::deserializer::struct_coercer::FieldMatcher::new(expected_field);
                 if let Some((json_key, _)) = matcher.find_in_object(&obj) {
                     if json_key != expected_field {
                         // Field name differs - normalize it
                         if let Some(value) = normalized_obj.remove(json_key) {
                             normalized_obj.insert(expected_field.to_string(), value);
-                            ctx.add_transformation(::tryparse::value::Transformation::FieldNameCaseChanged {
+                            ctx.add_transformation(#tryparse_crate::value::Transformation::FieldNameCaseChanged {
                                 from: json_key.clone(),
                                 to: expected_field.to_string(),
                             });
@@ -281,8 +283,8 @@ fn generate_tagged_enum_deserialize(
             // Prepare value for deserialization
             #deserialization_code
                 .map_err(|e| {
-                    ::tryparse::error::ParseError::DeserializeFailed(
-                        ::tryparse::error::DeserializeError::Custom(
+                    #tryparse_crate::error::ParseError::DeserializeFailed(
+                        #tryparse_crate::error::DeserializeError::Custom(
                             format!("Failed to deserialize tagged enum: {}", e)
                         )
                     )
@@ -294,7 +296,11 @@ fn generate_tagged_enum_deserialize(
 /// Generate untagged enum deserialization code for enums with #[serde(untagged)].
 ///
 /// Tries each variant in order and picks the best match based on transformation penalties.
-fn generate_untagged_enum_deserialize(name: &syn::Ident, data: &syn::DataEnum) -> TokenStream {
+fn generate_untagged_enum_deserialize(
+    name: &syn::Ident,
+    data: &syn::DataEnum,
+    tryparse_crate: &TokenStream,
+) -> TokenStream {
     let name_str = name.to_string();
 
     // Process all variants
@@ -311,8 +317,8 @@ fn generate_untagged_enum_deserialize(name: &syn::Ident, data: &syn::DataEnum) -
                     quote! {
                         {
                             // Try to match unit variant
-                            if let Ok(()) = value.value.as_null().ok_or_else(|| ::tryparse::error::ParseError::DeserializeFailed(
-                                ::tryparse::error::DeserializeError::Custom("not null".to_string())
+                            if let Ok(()) = value.value.as_null().ok_or_else(|| #tryparse_crate::error::ParseError::DeserializeFailed(
+                                #tryparse_crate::error::DeserializeError::Custom("not null".to_string())
                             )) {
                                 variant_matches.push((#variant_idx, 0));
                             }
@@ -326,9 +332,9 @@ fn generate_untagged_enum_deserialize(name: &syn::Ident, data: &syn::DataEnum) -
                         {
                             // Clone context to track transformations independently
                             let value_clone = value.clone();
-                            let mut attempt_ctx = ::tryparse::deserializer::CoercionContext::new();
+                            let mut attempt_ctx = #tryparse_crate::deserializer::CoercionContext::new();
 
-                            if let Ok(_val) = <#field_type as ::tryparse::deserializer::LlmDeserialize>::deserialize(&value_clone, &mut attempt_ctx) {
+                            if let Ok(_val) = <#field_type as #tryparse_crate::deserializer::LlmDeserialize>::deserialize(&value_clone, &mut attempt_ctx) {
                                 let score: u32 = attempt_ctx.transformations().iter().map(|t| t.penalty()).sum();
                                 variant_matches.push((#variant_idx, score));
                             }
@@ -383,7 +389,7 @@ fn generate_untagged_enum_deserialize(name: &syn::Ident, data: &syn::DataEnum) -
                     let field_type = &fields.unnamed[0].ty;
                     quote! {
                         #variant_idx => {
-                            let val = <#field_type as ::tryparse::deserializer::LlmDeserialize>::deserialize(value, ctx)?;
+                            let val = <#field_type as #tryparse_crate::deserializer::LlmDeserialize>::deserialize(value, ctx)?;
                             Ok(Self::#variant_ident(val))
                         },
                     }
@@ -393,8 +399,8 @@ fn generate_untagged_enum_deserialize(name: &syn::Ident, data: &syn::DataEnum) -
                         #variant_idx => {
                             // For struct variants, deserialize the whole enum and verify it's the right variant
                             let result = <Self as ::serde::Deserialize>::deserialize(&value.value)
-                                .map_err(|e| ::tryparse::error::ParseError::DeserializeFailed(
-                                    ::tryparse::error::DeserializeError::Custom(format!("serde error: {}", e))
+                                .map_err(|e| #tryparse_crate::error::ParseError::DeserializeFailed(
+                                    #tryparse_crate::error::DeserializeError::Custom(format!("serde error: {}", e))
                                 ))?;
                             Ok(result)
                         },
@@ -402,8 +408,8 @@ fn generate_untagged_enum_deserialize(name: &syn::Ident, data: &syn::DataEnum) -
                 }
                 _ => {
                     quote! {
-                        #variant_idx => Err(::tryparse::error::ParseError::DeserializeFailed(
-                            ::tryparse::error::DeserializeError::Custom(
+                        #variant_idx => Err(#tryparse_crate::error::ParseError::DeserializeFailed(
+                            #tryparse_crate::error::DeserializeError::Custom(
                                 "Multi-field tuple variants not supported in untagged enums".to_string()
                             )
                         )),
@@ -432,7 +438,7 @@ fn generate_untagged_enum_deserialize(name: &syn::Ident, data: &syn::DataEnum) -
                 Fields::Unnamed(fields) if fields.unnamed.len() == 1 => {
                     let field_type = &fields.unnamed[0].ty;
                     quote! {
-                        if let Some(_) = <#field_type as ::tryparse::deserializer::LlmDeserialize>::try_deserialize(value, &mut ::tryparse::deserializer::CoercionContext::new()) {
+                        if let Some(_) = <#field_type as #tryparse_crate::deserializer::LlmDeserialize>::try_deserialize(value, &mut #tryparse_crate::deserializer::CoercionContext::new()) {
                             strict_matches.push(#variant_idx);
                         }
                     }
@@ -444,10 +450,10 @@ fn generate_untagged_enum_deserialize(name: &syn::Ident, data: &syn::DataEnum) -
 
     quote! {
         fn deserialize(
-            value: &::tryparse::value::FlexValue,
-            ctx: &mut ::tryparse::deserializer::CoercionContext,
-        ) -> ::tryparse::error::Result<Self> {
-            use ::tryparse::deserializer::LlmDeserialize;
+            value: &#tryparse_crate::value::FlexValue,
+            ctx: &mut #tryparse_crate::deserializer::CoercionContext,
+        ) -> #tryparse_crate::error::Result<Self> {
+            use #tryparse_crate::deserializer::LlmDeserialize;
             use serde::Deserialize;
 
             // PHASE 1: Try strict matching first (try_deserialize - no coercion)
@@ -471,8 +477,8 @@ fn generate_untagged_enum_deserialize(name: &syn::Ident, data: &syn::DataEnum) -
 
             // If no matches, return error
             if variant_matches.is_empty() {
-                return Err(::tryparse::error::ParseError::DeserializeFailed(
-                    ::tryparse::error::DeserializeError::Custom(
+                return Err(#tryparse_crate::error::ParseError::DeserializeFailed(
+                    #tryparse_crate::error::DeserializeError::Custom(
                         format!("No variant of {} matched the input", #name_str)
                     )
                 ));
