@@ -21,7 +21,7 @@ once_cell.workspace = true
 unicode-normalization.workspace = true
 
 # Optional: derive macro support
-tryparse-derive = { version = "0.4.3", path = "../tryparse-derive", optional = true }
+tryparse-derive = { version = "0.4.4", path = "../tryparse-derive", optional = true }
 
 [dev-dependencies]
 pretty_assertions.workspace = true

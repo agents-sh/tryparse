@@ -89,6 +89,10 @@ impl HeuristicStrategy {
     }
 
     /// Finds balanced brace/bracket pairs.
+    ///
+    /// Boundaries are stored as byte offsets into `input`, not char indices,
+    /// so they can be used directly with `&input[start..end]` even when the
+    /// input contains multibyte UTF-8 characters.
     fn find_balanced_boundaries(
         &self,
         input: &str,
@@ -97,14 +101,22 @@ impl HeuristicStrategy {
         pattern: &'static str,
         boundaries: &mut Vec<(usize, usize, &'static str)>,
     ) {
-        let chars: Vec<char> = input.chars().collect();
+        // char_indices() yields (byte_offset, char) pairs.
+        let chars: Vec<(usize, char)> = input.char_indices().collect();
         let mut i = 0;
 
         while i < chars.len() {
-            if chars[i] == open {
+            if chars[i].1 == open {
                 // Found opening bracket/brace, find matching close
                 if let Some(end_idx) = self.find_matching_close(&chars, i, open, close) {
-                    boundaries.push((i, end_idx + 1, pattern));
+                    let byte_start = chars[i].0;
+                    // byte_end: start of the next char after end_idx, or the
+                    // end of the string if end_idx is the last char.
+                    let byte_end = chars
+                        .get(end_idx + 1)
+                        .map(|(offset, _)| *offset)
+                        .unwrap_or(input.len());
+                    boundaries.push((byte_start, byte_end, pattern));
                     i = end_idx + 1;
                 } else {
                     i += 1;
@@ -117,10 +129,12 @@ impl HeuristicStrategy {
 
     /// Finds the matching closing bracket/brace.
     ///
-    /// Returns the index of the closing character, or None if unbalanced.
+    /// `chars` is a slice of `(byte_offset, char)` pairs (from
+    /// `str::char_indices`). Returns the *vec index* (not byte offset) of the
+    /// closing character, or `None` if the opening bracket is unbalanced.
     fn find_matching_close(
         &self,
-        chars: &[char],
+        chars: &[(usize, char)],
         start: usize,
         open: char,
         close: char,
@@ -129,7 +143,7 @@ impl HeuristicStrategy {
         let mut in_string = false;
         let mut escape_next = false;
 
-        for (idx, &ch) in chars.iter().enumerate().skip(start) {
+        for (idx, &(_, ch)) in chars.iter().enumerate().skip(start) {
             if escape_next {
                 escape_next = false;
                 continue;
@@ -299,16 +313,16 @@ mod tests {
     #[test]
     fn test_find_matching_close() {
         let strategy = HeuristicStrategy::new();
-        let chars: Vec<char> = r#"{"name": "Alice"}"#.chars().collect();
+        let chars: Vec<(usize, char)> = r#"{"name": "Alice"}"#.char_indices().collect();
 
         let close_idx = strategy.find_matching_close(&chars, 0, '{', '}');
-        assert_eq!(close_idx, Some(16)); // Closing brace is at index 16
+        assert_eq!(close_idx, Some(16)); // Closing brace is at vec index 16
     }
 
     #[test]
     fn test_find_matching_close_with_nested() {
         let strategy = HeuristicStrategy::new();
-        let chars: Vec<char> = r#"{"a": {"b": 1}}"#.chars().collect();
+        let chars: Vec<(usize, char)> = r#"{"a": {"b": 1}}"#.char_indices().collect();
 
         let close_idx = strategy.find_matching_close(&chars, 0, '{', '}');
         assert_eq!(close_idx, Some(14));
@@ -321,5 +335,66 @@ mod tests {
 
         let result = strategy.parse(&huge_input).unwrap();
         assert!(result.is_empty()); // Should reject huge inputs
+    }
+
+    // --- Non-ASCII / multibyte UTF-8 regression tests ---
+    // These all previously panicked with "byte index N is not a char boundary"
+    // because char indices were being used as byte offsets.
+
+    #[test]
+    fn test_non_ascii_thai_in_value() {
+        let strategy = HeuristicStrategy::new();
+        // Thai characters are 3 bytes each in UTF-8
+        let input = r#"{"status":"complete","message":"สวัสดี"}"#;
+
+        let result = strategy.parse(input).unwrap();
+        assert!(!result.is_empty());
+        assert_eq!(result[0].value["message"], "สวัสดี");
+    }
+
+    #[test]
+    fn test_non_ascii_emoji_in_value() {
+        let strategy = HeuristicStrategy::new();
+        // Emoji are 4 bytes each in UTF-8
+        let input = r#"{"status":"complete","message":"Hello 🎉"}"#;
+
+        let result = strategy.parse(input).unwrap();
+        assert!(!result.is_empty());
+        assert_eq!(result[0].value["message"], "Hello 🎉");
+    }
+
+    #[test]
+    fn test_non_ascii_chinese_in_value() {
+        let strategy = HeuristicStrategy::new();
+        // CJK characters are 3 bytes each in UTF-8
+        let input = r#"Some text {"greeting": "你好世界"} more text"#;
+
+        let result = strategy.parse(input).unwrap();
+        assert!(!result.is_empty());
+        assert_eq!(result[0].value["greeting"], "你好世界");
+    }
+
+    #[test]
+    fn test_non_ascii_prose_before_json() {
+        let strategy = HeuristicStrategy::new();
+        // Multibyte chars in the surrounding prose (before the JSON object)
+        // cause the byte offset of '{' to diverge from its char index.
+        let input = r#"สวัสดี: {"name": "Alice", "age": 30}"#;
+
+        let result = strategy.parse(input).unwrap();
+        assert!(!result.is_empty());
+        assert_eq!(result[0].value, json!({"name": "Alice", "age": 30}));
+    }
+
+    #[test]
+    fn test_non_ascii_accented_characters() {
+        let strategy = HeuristicStrategy::new();
+        // Accented chars are 2 bytes each in UTF-8
+        let input = r#"Résumé: {"name": "Ångström", "city": "München"}"#;
+
+        let result = strategy.parse(input).unwrap();
+        assert!(!result.is_empty());
+        assert_eq!(result[0].value["name"], "Ångström");
+        assert_eq!(result[0].value["city"], "München");
     }
 }

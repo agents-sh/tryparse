@@ -113,6 +113,10 @@ impl HeuristicExtractor {
     }
 
     /// Finds balanced brace/bracket pairs.
+    ///
+    /// Boundaries are stored as byte offsets into `input`, not char indices,
+    /// so they can be used directly with `&input[start..end]` even when the
+    /// input contains multibyte UTF-8 characters.
     fn find_balanced_boundaries(
         &self,
         input: &str,
@@ -121,14 +125,22 @@ impl HeuristicExtractor {
         pattern: &'static str,
         boundaries: &mut Vec<(usize, usize, &'static str)>,
     ) {
-        let chars: Vec<char> = input.chars().collect();
+        // char_indices() yields (byte_offset, char) pairs.
+        let chars: Vec<(usize, char)> = input.char_indices().collect();
         let mut i = 0;
 
         while i < chars.len() {
-            if chars[i] == open {
+            if chars[i].1 == open {
                 // Found opening bracket/brace, find matching close
                 if let Some(end_idx) = self.find_matching_close(&chars, i, open, close) {
-                    boundaries.push((i, end_idx + 1, pattern));
+                    let byte_start = chars[i].0;
+                    // byte_end: start of the next char after end_idx, or the
+                    // end of the string if end_idx is the last char.
+                    let byte_end = chars
+                        .get(end_idx + 1)
+                        .map(|(offset, _)| *offset)
+                        .unwrap_or(input.len());
+                    boundaries.push((byte_start, byte_end, pattern));
                     i = end_idx + 1;
                 } else {
                     i += 1;
@@ -140,9 +152,13 @@ impl HeuristicExtractor {
     }
 
     /// Finds the matching closing bracket/brace.
+    ///
+    /// `chars` is a slice of `(byte_offset, char)` pairs (from
+    /// `str::char_indices`). Returns the *vec index* (not byte offset) of the
+    /// closing character, or `None` if the opening bracket is unbalanced.
     fn find_matching_close(
         &self,
-        chars: &[char],
+        chars: &[(usize, char)],
         start: usize,
         open: char,
         close: char,
@@ -151,7 +167,7 @@ impl HeuristicExtractor {
         let mut in_string = false;
         let mut escape_next = false;
 
-        for (idx, &ch) in chars.iter().enumerate().skip(start) {
+        for (idx, &(_, ch)) in chars.iter().enumerate().skip(start) {
             if escape_next {
                 escape_next = false;
                 continue;
@@ -300,5 +316,41 @@ mod tests {
         let candidates = extractor.extract(input).unwrap();
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].content, "[1, 2, 3, 4, 5]");
+    }
+
+    // --- Non-ASCII / multibyte UTF-8 regression tests ---
+
+    #[test]
+    fn test_heuristic_extractor_non_ascii_value() {
+        let extractor = HeuristicExtractor::new();
+        // Thai characters (3 bytes each) inside the JSON value
+        let input = r#"{"message":"สวัสดี"}"#;
+
+        let candidates = extractor.extract(input).unwrap();
+        assert!(!candidates.is_empty());
+        assert_eq!(candidates[0].content, input);
+    }
+
+    #[test]
+    fn test_heuristic_extractor_emoji_in_value() {
+        let extractor = HeuristicExtractor::new();
+        // Emoji are 4 bytes each
+        let input = r#"Result: {"msg": "Hello 🎉"} done"#;
+
+        let candidates = extractor.extract(input).unwrap();
+        assert!(!candidates.is_empty());
+        assert_eq!(candidates[0].content, r#"{"msg": "Hello 🎉"}"#);
+    }
+
+    #[test]
+    fn test_heuristic_extractor_multibyte_prose_prefix() {
+        let extractor = HeuristicExtractor::new();
+        // Multibyte chars in the prose BEFORE the JSON mean the '{' char
+        // index != byte offset — the old code would slice at the wrong position.
+        let input = r#"สวัสดี: {"name": "Alice"}"#;
+
+        let candidates = extractor.extract(input).unwrap();
+        assert!(!candidates.is_empty());
+        assert_eq!(candidates[0].content, r#"{"name": "Alice"}"#);
     }
 }
