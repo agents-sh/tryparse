@@ -25,7 +25,9 @@ pub fn generate_enum_deserialize(
 
     // Check if this is an internally-tagged enum
     match extract_tag_info(attrs) {
-        Ok(Some(tag_info)) => return generate_tagged_enum_deserialize(name, data, tag_info, tryparse_crate),
+        Ok(Some(tag_info)) => {
+            return generate_tagged_enum_deserialize(name, data, tag_info, tryparse_crate)
+        }
         Ok(None) => {}          // Continue with regular enum deserialization
         Err(err) => return err, // Return compile error
     }

@@ -185,7 +185,9 @@ impl_unsigned_int!(u8, u16, u32, usize);
 impl LlmDeserialize for u64 {
     fn try_deserialize(value: &FlexValue, _ctx: &mut CoercionContext) -> Option<Self> {
         match &value.value {
-            Value::Number(n) => n.as_u64().or_else(|| n.as_i64().and_then(|i| u64::try_from(i).ok())),
+            Value::Number(n) => n
+                .as_u64()
+                .or_else(|| n.as_i64().and_then(|i| u64::try_from(i).ok())),
             _ => None,
         }
     }
@@ -287,10 +289,10 @@ impl LlmDeserialize for u64 {
 impl LlmDeserialize for u128 {
     fn try_deserialize(value: &FlexValue, _ctx: &mut CoercionContext) -> Option<Self> {
         match &value.value {
-            Value::Number(n) => n.as_u64().map(u128::from).or_else(|| {
-                n.as_i64()
-                    .and_then(|i| u128::try_from(i).ok())
-            }),
+            Value::Number(n) => n
+                .as_u64()
+                .map(u128::from)
+                .or_else(|| n.as_i64().and_then(|i| u128::try_from(i).ok())),
             _ => None,
         }
     }
